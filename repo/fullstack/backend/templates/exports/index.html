@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Reports & Exports{% endblock %}
+{% block content %}
+<h1>Reports &amp; Exports</h1>
+
+<div class="card">
+  <h3>Operations Metrics</h3>
+  <form id="metrics-form" hx-target="#metrics-display">
+    <div class="form-row">
+      <div class="form-group"><label>Date Start</label><input name="date_start" type="date" required></div>
+      <div class="form-group"><label>Date End</label><input name="date_end" type="date" required></div>
+      <div class="form-group"><label>Category Filter</label>
+        <select name="clothing_category"><option value="">All</option><option>shirts</option><option>pants</option><option>jackets</option><option>dresses</option><option>mixed</option></select>
+      </div>
+      <div class="form-group"><label>Route Code</label>
+        <input name="route_code" placeholder="Filter by route">
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Load Metrics</button>
+  </form>
+  <div id="metrics-display" class="mt-1"></div>
+</div>
+
+<div class="card">
+  <h3>Request Export</h3>
+  <div id="export-result"></div>
+  <form id="export-form">
+    <div class="form-row">
+      <!-- store_id is derived from the session -->
+      <div class="form-group"><label>Export Type</label>
+        <select name="export_type"><option>tickets</option><option>metrics</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Watermark</label><select name="watermark_enabled"><option value="false">No</option><option value="true">Yes</option></select></div>
+      <div class="form-group"><label>Attribution</label><input name="attribution_text" placeholder="Optional"></div>
+    </div>
+    <button type="submit" class="btn btn-primary">Request Export</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Export Requests</h3>
+  <button class="btn btn-sm btn-primary" hx-get="/ui/partials/exports/list" hx-target="#export-list" hx-swap="innerHTML">Refresh</button>
+  <div id="export-list" class="mt-1"
+       hx-get="/ui/partials/exports/list"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="msg msg-info">Loading export requests...</div>
+  </div>
+  <div class="form-group mt-1"><label>Reason (for rejection)</label><input id="exp-reason"></div>
+  <div id="approval-result" class="mt-1"></div>
+</div>
+
+<script>
+const api=(u,b,m='POST')=>fetch(u,{method:m,headers:{'Content-Type':'application/json'},...(m==='GET'?{}:{body:JSON.stringify(b)})}).then(r=>r.json());
+const showR=(el,d)=>{el.innerHTML=d.error?'<div class="msg msg-error">'+H(d.error.message)+'</div>':'<div class="msg msg-success">'+H(JSON.stringify(d.data,null,1))+'</div>';};
+
+document.getElementById('metrics-form').addEventListener('submit',async e=>{
+  e.preventDefault();const fd=new FormData(e.target);
+  let url='/api/exports/metrics?date_start='+encodeURIComponent(fd.get('date_start'))+'&date_end='+encodeURIComponent(fd.get('date_end'));
+  const cat=fd.get('clothing_category');if(cat)url+='&clothing_category='+encodeURIComponent(cat);
+  const rc=fd.get('route_code');if(rc)url+='&route_code='+encodeURIComponent(rc);
+  const r=await api(url,null,'GET');
+  const el=document.getElementById('metrics-display');
+  if(r.error){el.innerHTML='<div class="msg msg-error">'+H(r.error.message)+'</div>';return;}
+  const m=r.data;
+  el.innerHTML='<div class="metrics-grid">'
+    +'<div class="metric-card"><div class="value">'+H(m.order_volume)+'</div><div class="label">Order Volume</div></div>'
+    +'<div class="metric-card"><div class="value">$'+H(m.revenue.toFixed(2))+'</div><div class="label">Revenue</div></div>'
+    +'<div class="metric-card"><div class="value">'+H(m.refund_rate.toFixed(1))+'%</div><div class="label">Refund Rate</div></div>'
+    +'<div class="metric-card"><div class="value">'+H(m.load_factor.toFixed(1))+'%</div><div class="label">Load Factor</div></div>'
+    +'</div>'
+    +(m.route_code?'<div class="text-sm text-muted mt-1">Route: '+H(m.route_code)+' ('+H(m.stores_in_route?.length||0)+' stores)</div>':'');
+});
+
+document.getElementById('export-form').addEventListener('submit',async e=>{
+  e.preventDefault();const fd=new FormData(e.target),b={};
+  fd.forEach((v,k)=>b[k]=k==='watermark_enabled'?v==='true':v);
+  showR(document.getElementById('export-result'),await api('/api/exports/requests',b));
+});
+
+const apRes=()=>document.getElementById('approval-result');
+const refreshExportList=()=>htmx.trigger('#export-list','load');
+const exportSummary=d=>'Export #'+H(d.id)+' — <span class="badge badge-'+H(d.status)+'">'+H(d.status)+'</span>';
+
+async function approveExportInline(id){
+  const password=window.prompt('Re-enter your password to approve export #'+id+':');
+  if(!password)return;
+  const r=await api('/api/exports/requests/'+id+'/approve',{password});
+  showApiResult(apRes(),r,exportSummary);
+  refreshExportList();
+}
+async function rejectExportInline(id){
+  const reason=document.getElementById('exp-reason').value.trim();
+  if(!reason){showMsg(apRes(),'error','Rejection reason is required.');return;}
+  if(!confirmAction('Reject export #'+id+'?'))return;
+  const r=await api('/api/exports/requests/'+id+'/reject',{reason});
+  showApiResult(apRes(),r,exportSummary);
+  refreshExportList();
+}
+async function executeExportInline(id){
+  if(!confirmAction('Execute export #'+id+'? This is one-time only.'))return;
+  const r=await api('/api/exports/requests/'+id+'/execute',{});
+  showApiResult(apRes(),r,d=>exportSummary(d)+'<br>Completed at: '+H(d.completed_at||'—'));
+  refreshExportList();
+}
+</script>
+{% endblock %}

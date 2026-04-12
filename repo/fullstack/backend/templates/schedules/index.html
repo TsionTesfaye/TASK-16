@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Schedules{% endblock %}
+{% block content %}
+<h1>Schedule Adjustments</h1>
+
+<div class="card">
+  <h3>Request Schedule Adjustment</h3>
+  <div id="sched-result"></div>
+  <form id="sched-form">
+    <div class="form-row">
+      <div class="form-group"><label>Adjustment Type</label>
+        <select name="adjustment_type"><option>retry_timing</option><option>deadline_override</option><option>report_schedule</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Target Entity Type</label><input name="target_entity_type" required placeholder="e.g. ticket_message_log"></div>
+      <div class="form-group"><label>Target Entity ID</label><input name="target_entity_id" required></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Before Value</label><input name="before_value" required></div>
+      <div class="form-group"><label>After Value</label><input name="after_value" required></div>
+    </div>
+    <div class="form-group"><label>Reason</label><input name="reason" required></div>
+    <button type="submit" class="btn btn-primary">Submit Request</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Pending Adjustments (Supervisor)</h3>
+  <button class="btn btn-primary btn-sm" hx-get="/ui/partials/schedules/pending" hx-target="#pending-list" hx-swap="innerHTML">Refresh</button>
+  <div id="pending-list" class="mt-1"
+       hx-get="/ui/partials/schedules/pending"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="msg msg-info">Loading pending adjustments...</div>
+  </div>
+  <div class="form-group mt-1"><label>Reason (for rejection)</label><input id="adj-reason"></div>
+  <div id="adj-result" class="mt-1"></div>
+</div>
+
+<script>
+const api=(u,b,m='POST')=>fetch(u,{method:m,headers:{'Content-Type':'application/json'},...(m==='GET'?{}:{body:JSON.stringify(b)})}).then(r=>r.json());
+const showR=(el,d)=>{el.innerHTML=d.error?'<div class="msg msg-error">'+H(d.error.message)+'</div>':'<div class="msg msg-success">'+H(JSON.stringify(d.data,null,1))+'</div>';};
+const refreshPending=()=>htmx.trigger('#pending-list','load');
+
+document.getElementById('sched-form').addEventListener('submit',async e=>{
+  e.preventDefault();const fd=new FormData(e.target),b={};
+  fd.forEach((v,k)=>b[k]=v);
+  showR(document.getElementById('sched-result'),await api('/api/schedules/adjustments',b));
+  refreshPending();
+});
+
+const adjRes=()=>document.getElementById('adj-result');
+const adjSummary=d=>'Adjustment #'+H(d.id)+' — <span class="badge badge-'+H(d.status)+'">'+H(d.status)+'</span>';
+
+async function approveScheduleInline(id){
+  const password=window.prompt('Re-enter your password to approve schedule adjustment #'+id+':');
+  if(!password)return;
+  const r=await api('/api/schedules/adjustments/'+id+'/approve',{password});
+  showApiResult(adjRes(),r,adjSummary);
+  refreshPending();
+}
+async function rejectScheduleInline(id){
+  const reason=document.getElementById('adj-reason').value.trim();
+  if(!reason){showMsg(adjRes(),'error','Rejection reason is required.');return;}
+  if(!confirmAction('Reject schedule adjustment #'+id+'?'))return;
+  const r=await api('/api/schedules/adjustments/'+id+'/reject',{reason});
+  showApiResult(adjRes(),r,adjSummary);
+  refreshPending();
+}
+</script>
+{% endblock %}

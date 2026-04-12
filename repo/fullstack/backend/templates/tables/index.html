@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Tables / Rooms{% endblock %}
+{% block content %}
+<h1>Table &amp; Room Management</h1>
+
+<div class="card">
+  <h3>Open Table / Room</h3>
+  <div id="table-result"></div>
+  <form id="open-form">
+    <div class="form-row">
+      <div class="form-group"><label>Table ID</label><input name="table_id" type="number" required></div>
+      <div class="form-group"><label>Customer Label</label><input name="customer_label"></div>
+    </div>
+    <button type="submit" class="btn btn-primary">Open Table</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Session Board</h3>
+  <button class="btn btn-sm btn-primary" hx-get="/ui/partials/tables/board" hx-target="#table-board" hx-swap="innerHTML">Refresh</button>
+  <div id="table-board" class="mt-1"
+       hx-get="/ui/partials/tables/board"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="msg msg-info">Loading sessions...</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Merge / Transfer</h3>
+  <div class="form-row">
+    <div class="form-group"><label>Session IDs (comma-separated)</label><input id="merge-ids" placeholder="1,2,3"></div>
+    <div class="form-group"><label>Store ID</label><input id="merge-store" type="number" value="1"></div>
+  </div>
+  <button class="btn btn-warn btn-sm" onclick="mergeTables()">Merge</button>
+  <div class="form-row mt-1">
+    <div class="form-group"><label>Session ID</label><input id="xfer-sess" type="number"></div>
+    <div class="form-group"><label>New User ID</label><input id="xfer-user" type="number"></div>
+  </div>
+  <button class="btn btn-primary btn-sm" onclick="transferTable()">Transfer</button>
+  <div id="action-result" class="mt-1"></div>
+</div>
+
+<div class="card">
+  <h3>Activity Timeline</h3>
+  <div class="form-group"><label>Session ID</label><input id="tl-sess" type="number">
+    <button class="btn btn-sm btn-primary mt-1" onclick="loadTimeline()">Load</button>
+  </div>
+  <div id="timeline-container"></div>
+</div>
+
+<script>
+const api=(u,b,m='POST')=>fetch(u,{method:m,headers:{'Content-Type':'application/json'},...(m==='GET'?{}:{body:JSON.stringify(b)})}).then(r=>r.json());
+const showR=(el,d)=>{el.innerHTML=d.error?'<div class="msg msg-error">'+H(d.error.message)+'</div>':'<div class="msg msg-success">'+H(JSON.stringify(d.data,null,1))+'</div>';};
+const refreshBoard = () => htmx.trigger('#table-board', 'load');
+
+document.getElementById('open-form').addEventListener('submit',async e=>{
+  e.preventDefault();const fd=new FormData(e.target),b={};
+  fd.forEach((v,k)=>b[k]=['table_id','store_id'].includes(k)?+v:v);
+  const r=await api('/api/tables/open',b);
+  const el=document.getElementById('table-result');
+  if(r.error){el.innerHTML='<div class="msg msg-error">'+H(r.error.message)+'</div>';return;}
+  el.innerHTML='<div class="msg msg-success">Session #'+H(r.data.id)+' opened — <span class="badge badge-'+H(r.data.current_state)+'">'+H(r.data.current_state)+'</span></div>';
+  refreshBoard();
+});
+
+async function mergeTables(){
+  const ids=document.getElementById('merge-ids').value.split(',').map(Number);
+  showR(document.getElementById('action-result'),await api('/api/tables/merge',{session_ids:ids,store_id:+document.getElementById('merge-store').value}));
+  refreshBoard();
+}
+async function transferTable(){
+  showR(document.getElementById('action-result'),await api('/api/tables/sessions/'+document.getElementById('xfer-sess').value+'/transfer',{new_user_id:+document.getElementById('xfer-user').value}));
+  refreshBoard();
+}
+async function loadTimeline(){
+  const r=await api('/api/tables/sessions/'+document.getElementById('tl-sess').value+'/timeline',null,'GET');
+  const el=document.getElementById('timeline-container');
+  if(r.error){el.innerHTML='<div class="msg msg-error">'+H(r.error.message)+'</div>';return;}
+  if(!r.data||!r.data.length){el.innerHTML='<div class="msg msg-info">No events</div>';return;}
+  el.innerHTML='<div class="timeline">'+r.data.map(e=>'<div class="timeline-item"><strong>'+H(e.event_type)+'</strong>'+(e.before_state?' — '+H(e.before_state)+' → '+H(e.after_state):'')+'<div class="ts">'+H(e.created_at)+'</div></div>').join('')+'</div>';
+}
+</script>
+{% endblock %}

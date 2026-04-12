@@ -1,0 +1,260 @@
+{% extends "base.html" %}
+{% block title %}Tickets{% endblock %}
+{% block content %}
+<h1>Buyback Tickets</h1>
+
+<div class="card">
+  <h3>Create New Ticket</h3>
+  <div id="ticket-result"></div>
+  <form id="ticket-form" hx-target="#ticket-result">
+    <div class="form-row">
+      <div class="form-group"><label>Customer Name</label><input name="customer_name" required></div>
+      <div class="form-group"><label>Customer Phone</label><input name="customer_phone" type="tel" placeholder="Full number — encrypted at rest"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Category</label>
+        <select name="clothing_category" required>
+          <option value="">Select...</option><option>shirts</option><option>pants</option><option>jackets</option><option>dresses</option><option>mixed</option>
+        </select>
+      </div>
+      <div class="form-group"><label>Condition Grade</label>
+        <select name="condition_grade" required>
+          <option value="">Select...</option><option value="A">A — Excellent</option><option value="B">B — Good</option><option value="C">C — Fair</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Estimated Weight (lbs)</label><input name="estimated_weight_lbs" type="number" step="0.1" min="0.1" required></div>
+      <div class="form-group"><label>Phone Preference</label>
+        <select name="customer_phone_preference"><option value="standard_calls">Standard</option><option value="calls_only">Calls Only</option></select>
+      </div>
+    </div>
+    <button type="submit" class="btn btn-primary">Create Ticket &amp; Calculate Payout</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Ticket Queue</h3>
+  <button class="btn btn-sm btn-primary" hx-get="/ui/partials/tickets/queue" hx-target="#ticket-queue" hx-swap="innerHTML">Refresh</button>
+  <span class="htmx-indicator">Loading...</span>
+  <div id="ticket-queue" class="mt-1"
+       hx-get="/ui/partials/tickets/queue"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="msg msg-info">Loading ticket queue...</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Supervisor Actions</h3>
+  <div class="form-row">
+    <div class="form-group"><label>Ticket / Request ID</label><input id="action-ticket-id" type="number" placeholder="Enter ID"></div>
+  </div>
+  <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+    <button class="btn btn-warn btn-sm" onclick="showVarianceConfirm()">Confirm Variance</button>
+    <button class="btn btn-danger btn-sm" onclick="showRefundForm()">Initiate Refund</button>
+    <button class="btn btn-sm" style="background:#6b7280;color:#fff" onclick="showCancelForm()">Cancel</button>
+  </div>
+  <div id="action-result" class="mt-1"></div>
+
+  <div id="variance-form" class="hidden mt-2 card">
+    <h3>Confirm Variance</h3>
+    <div class="form-group"><label>Confirmation Note</label><textarea id="variance-note" required></textarea></div>
+    <button class="btn btn-warn" onclick="confirmVariance()">Confirm</button>
+  </div>
+
+  <div id="variance-approval" class="hidden mt-2 card">
+    <h3>Supervisor Variance Approval</h3>
+    <div class="form-group"><label>Approval Request ID</label><input id="var-req-id" type="number"></div>
+    <div style="display:flex;gap:.5rem">
+      <button class="btn btn-success" onclick="approveVariance()">Approve (Password)</button>
+      <button class="btn btn-danger" onclick="rejectVariance()">Reject</button>
+    </div>
+    <div class="form-group mt-1"><label>Reason (for rejection)</label><input id="var-reject-reason"></div>
+  </div>
+
+  <div id="refund-form" class="hidden mt-2 card">
+    <h3>Initiate Refund</h3>
+    <div class="form-row">
+      <div class="form-group"><label>Amount (blank = full)</label><input id="refund-amount" type="number" step="0.01"></div>
+      <div class="form-group"><label>Reason</label><input id="refund-reason"></div>
+    </div>
+    <button class="btn btn-danger" onclick="initiateRefund()">Submit Refund Request</button>
+  </div>
+
+  <div id="refund-approval" class="mt-2 card">
+    <h3>Refund Approval (Supervisor)</h3>
+    <div class="form-group"><label>Ticket ID</label><input id="refund-approve-id" type="number"></div>
+    <div style="display:flex;gap:.5rem">
+      <button class="btn btn-success" onclick="approveRefund()">Approve Refund</button>
+      <button class="btn btn-danger" onclick="rejectRefund()">Reject Refund</button>
+    </div>
+    <div class="form-group mt-1"><label>Reason (for rejection)</label><input id="refund-reject-reason"></div>
+  </div>
+
+  <div id="cancel-form" class="hidden mt-2 card">
+    <h3>Cancel Ticket</h3>
+    <div class="form-group"><label>Reason</label><input id="cancel-reason" required></div>
+    <button class="btn btn-danger" onclick="cancelTicket()">Cancel Ticket</button>
+  </div>
+</div>
+
+<script>
+const api = (url, body) => fetch(url, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}).then(r=>r.json());
+const show = (id) => document.getElementById(id).classList.remove('hidden');
+const tid = () => parseInt(document.getElementById('action-ticket-id').value);
+const actionResult = () => document.getElementById('action-result');
+const refreshQueue = () => htmx.trigger('#ticket-queue', 'load');
+
+function requireTicketId() {
+  const v = tid();
+  if (!Number.isFinite(v) || v <= 0) {
+    showMsg(actionResult(), 'error', 'Enter a ticket ID first.');
+    return null;
+  }
+  return v;
+}
+
+function ticketSummary(t) {
+  return 'Ticket #' + H(t.id) + ' — <span class="badge badge-' + H(t.status) + '">' + H(t.status) + '</span>';
+}
+
+document.getElementById('ticket-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const btn = e.target.querySelector('button[type="submit"]');
+  btn.classList.add('is-loading');
+  try {
+    const fd = new FormData(e.target);
+    const body = {};
+    fd.forEach((v,k) => { if(v) body[k] = k === 'estimated_weight_lbs' ? Number(v) : v; });
+    const r = await api('/api/tickets', body);
+    const el = document.getElementById('ticket-result');
+    if (r.error) { showMsg(el, 'error', escapeHtml(r.error.message)); return; }
+    const t = r.data;
+    const bonus = t.estimated_bonus_pct || 0;
+    const rate = t.estimated_base_rate || 0;
+    const weight = t.estimated_weight_lbs || 0;
+    let tierInfo = '';
+    if (bonus > 0) {
+      tierInfo = '<br><span class="text-sm" style="color:var(--success)">+' + H(bonus) + '% bonus applied'
+        + ' ($' + H(rate.toFixed(2)) + '/lb × ' + H(weight) + ' lbs)</span>';
+    } else {
+      tierInfo = '<br><span class="text-sm text-muted">No promotion applied (base rate: $' + H(rate.toFixed(2)) + '/lb)</span>';
+    }
+    el.innerHTML = '<div class="msg msg-success">'
+      + 'Ticket #' + H(t.id) + ' created — <span class="badge badge-' + H(t.status) + '">' + H(t.status) + '</span><br>'
+      + '<strong>Estimated Payout: $' + H((t.estimated_payout || 0).toFixed(2)) + '</strong>'
+      + (t.estimated_cap_applied ? ' <em>(cap applied)</em>' : '')
+      + tierInfo
+      + '</div>';
+    refreshQueue();
+    e.target.reset();
+  } finally { btn.classList.remove('is-loading'); }
+});
+
+// Queue inline actions
+function cancelFromQueue(id) {
+  const reason = window.prompt('Cancellation reason for ticket #' + id + ':');
+  if (!reason) return;
+  api('/api/tickets/' + id + '/cancel', {reason}).then(r => {
+    if (r.error) showMsg(actionResult(), 'error', H(r.error.message));
+    refreshQueue();
+  });
+}
+function confirmVarianceFromQueue(id) {
+  document.getElementById('action-ticket-id').value = id;
+  showVarianceConfirm();
+}
+function dialFromQueue(id) {
+  if (!confirmAction('Dial customer for ticket #' + id + '? This action is audited.')) return;
+  api('/api/tickets/' + id + '/dial', {}).then(r => {
+    if (r.error) { showMsg(actionResult(), 'error', H(r.error.message)); return; }
+    const phone = r.data.phone;
+    showMsg(actionResult(), 'success',
+      'Dialing: <a href="tel:' + H(phone) + '" class="btn btn-success btn-sm" style="text-decoration:none">Call ' + H(r.data.last4 ? '••••' + r.data.last4 : phone) + '</a> (audit logged)');
+  });
+}
+
+function showVarianceConfirm() { show('variance-form'); show('variance-approval'); }
+function showRefundForm() { show('refund-form'); }
+function showCancelForm() { show('cancel-form'); }
+
+async function confirmVariance() {
+  if (!requireTicketId()) return;
+  const note = document.getElementById('variance-note').value.trim();
+  if (!note) { showMsg(actionResult(), 'error', 'Confirmation note is required.'); return; }
+  const r = await api('/api/tickets/' + tid() + '/confirm-variance', {confirmation_note: note});
+  showApiResult(actionResult(), r, d => 'Variance confirmed — approval request #' + d.id);
+  if (r.data) document.getElementById('var-req-id').value = r.data.id;
+  refreshQueue();
+}
+
+async function approveVariance() {
+  const rid = document.getElementById('var-req-id').value;
+  if (!rid) { showMsg(actionResult(), 'error', 'Enter an approval request ID.'); return; }
+  const password = window.prompt('Re-enter your password to approve this variance:');
+  if (!password) return;
+  const r = await api('/api/tickets/variance/' + rid + '/approve', {password});
+  showApiResult(actionResult(), r, ticketSummary);
+  refreshQueue();
+}
+
+async function rejectVariance() {
+  const rid = document.getElementById('var-req-id').value;
+  if (!rid) { showMsg(actionResult(), 'error', 'Enter an approval request ID.'); return; }
+  const reason = document.getElementById('var-reject-reason').value.trim();
+  if (!reason) { showMsg(actionResult(), 'error', 'Rejection reason is required.'); return; }
+  if (!confirmAction('Reject this variance approval? This cannot be undone.')) return;
+  const r = await api('/api/tickets/variance/' + rid + '/reject', {reason});
+  showApiResult(actionResult(), r, d => 'Variance rejected — request #' + d.id);
+  refreshQueue();
+}
+
+async function initiateRefund() {
+  if (!requireTicketId()) return;
+  const body = {};
+  const amt = document.getElementById('refund-amount').value;
+  if (amt) {
+    const reason = document.getElementById('refund-reason').value.trim();
+    if (!reason) { showMsg(actionResult(), 'error', 'Reason required for partial refund.'); return; }
+    body.refund_amount = parseFloat(amt);
+    body.reason = reason;
+  }
+  if (!confirmAction('Submit a refund request for ticket #' + tid() + '?')) return;
+  const r = await api('/api/tickets/' + tid() + '/refund', body);
+  showApiResult(actionResult(), r, ticketSummary);
+  refreshQueue();
+}
+
+async function approveRefund() {
+  const id = document.getElementById('refund-approve-id').value;
+  if (!id) { showMsg(actionResult(), 'error', 'Enter a ticket ID.'); return; }
+  const password = window.prompt('Re-enter your password to approve refund for ticket #' + id + ':');
+  if (!password) return;
+  const r = await api('/api/tickets/' + id + '/refund/approve', {password});
+  showApiResult(actionResult(), r, ticketSummary);
+  refreshQueue();
+}
+
+async function rejectRefund() {
+  const id = document.getElementById('refund-approve-id').value;
+  if (!id) { showMsg(actionResult(), 'error', 'Enter a ticket ID.'); return; }
+  const reason = document.getElementById('refund-reject-reason').value.trim();
+  if (!reason) { showMsg(actionResult(), 'error', 'Rejection reason is required.'); return; }
+  if (!confirmAction('Reject refund for ticket #' + id + '?')) return;
+  const r = await api('/api/tickets/' + id + '/refund/reject', {reason});
+  showApiResult(actionResult(), r, ticketSummary);
+  refreshQueue();
+}
+
+async function cancelTicket() {
+  if (!requireTicketId()) return;
+  const reason = document.getElementById('cancel-reason').value.trim();
+  if (!reason) { showMsg(actionResult(), 'error', 'Cancellation reason is required.'); return; }
+  if (!confirmAction('Cancel ticket #' + tid() + '? This cannot be undone.')) return;
+  const r = await api('/api/tickets/' + tid() + '/cancel', {reason});
+  showApiResult(actionResult(), r, ticketSummary);
+  refreshQueue();
+}
+</script>
+{% endblock %}

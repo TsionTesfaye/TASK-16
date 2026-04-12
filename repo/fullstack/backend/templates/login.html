@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>ReclaimOps — Sign In</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+  <div class="login-container card">
+    <h1>ReclaimOps</h1>
+    <p class="text-muted text-sm mb-2" style="text-align:center">
+      Offline Operations Suite
+    </p>
+    <div id="login-msg"></div>
+    <form id="login-form" autocomplete="off">
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input id="username" type="text" name="username" required autofocus
+               placeholder="Enter your username">
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input id="password" type="password" name="password" required
+               placeholder="Enter your password">
+      </div>
+      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:.5rem">
+        Sign In
+      </button>
+    </form>
+  </div>
+  <script>
+    document.getElementById('login-form').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      const btn = this.querySelector('button[type="submit"]');
+      const msg = document.getElementById('login-msg');
+      msg.innerHTML = '';
+      btn.classList.add('is-loading');
+      try {
+        const fd = new FormData(this);
+        const resp = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            username: fd.get('username'),
+            password: fd.get('password'),
+          }),
+        });
+        const data = await resp.json();
+        if (resp.ok) {
+          location.href = '/ui/tickets';
+          return;
+        }
+        // Login is unauthenticated — there's no shared base.html here,
+        // so use the local DOM-text path instead of innerHTML to keep
+        // the error message safe even if the server ever returns
+        // attacker-controlled text.
+        const errBox = document.createElement('div');
+        errBox.className = 'msg msg-error';
+        errBox.textContent = (data.error && data.error.message)
+          ? data.error.message
+          : 'Sign-in failed';
+        msg.replaceChildren(errBox);
+      } catch (err) {
+        msg.innerHTML = '<div class="msg msg-error">Network error — please try again.</div>';
+      } finally {
+        btn.classList.remove('is-loading');
+      }
+    });
+  </script>
+</body>
+</html>

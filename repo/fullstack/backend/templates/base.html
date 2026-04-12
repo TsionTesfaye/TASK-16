@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ReclaimOps — {% block title %}Dashboard{% endblock %}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <!-- HTMX is vendored locally — no network access at runtime -->
+  <script src="/static/js/htmx.min.js"></script>
+  <script>
+    // Read csrf_token cookie and attach X-CSRF-Token to every fetch + HTMX request.
+    function getCsrfToken() {
+      const c = document.cookie.split('; ').find(x => x.startsWith('csrf_token='));
+      return c ? decodeURIComponent(c.split('=')[1]) : '';
+    }
+    (function() {
+      const orig = window.fetch;
+      window.fetch = function(url, opts) {
+        opts = opts || {};
+        opts.headers = opts.headers || {};
+        const token = getCsrfToken();
+        if (token) opts.headers['X-CSRF-Token'] = token;
+        return orig.call(window, url, opts);
+      };
+    })();
+
+    // ── Shared UI helpers ──
+
+    // Render a success/error/info message into an element.
+    function showMsg(elOrId, type, text) {
+      const el = typeof elOrId === 'string' ? document.getElementById(elOrId) : elOrId;
+      if (!el) return;
+      el.innerHTML = '<div class="msg msg-' + type + '">' + text + '</div>';
+    }
+
+    // Render an API response — picks success/error automatically.
+    // Optional formatter builds a custom success message; default shows a generic line.
+    function showApiResult(elOrId, resp, successFormatter) {
+      const el = typeof elOrId === 'string' ? document.getElementById(elOrId) : elOrId;
+      if (!el) return;
+      if (resp && resp.error) {
+        showMsg(el, 'error', escapeHtml(resp.error.message || 'Request failed'));
+        return;
+      }
+      const body = successFormatter ? successFormatter(resp.data) : 'Success.';
+      showMsg(el, 'success', body);
+    }
+
+    // Minimal HTML escape for user-facing text.
+    function escapeHtml(s) {
+      if (s == null) return '';
+      return String(s).replace(/[&<>"']/g, c =>
+        ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
+    // Shorter alias used across templates: H(value) MUST wrap every
+    // dynamic value before it is concatenated into an innerHTML
+    // assignment. The browser treats the result as parsed HTML, so
+    // unescaped user input would otherwise execute scripts.
+    const H = escapeHtml;
+
+    // Disable a form's submit button while an async handler runs.
+    async function withSubmitLock(formOrBtn, handler) {
+      const btn = formOrBtn.tagName === 'BUTTON'
+        ? formOrBtn
+        : formOrBtn.querySelector('button[type="submit"], button:not([type])');
+      try {
+        if (btn) btn.classList.add('is-loading');
+        return await handler();
+      } finally {
+        if (btn) btn.classList.remove('is-loading');
+      }
+    }
+
+    // Confirm destructive actions with a standard prompt. Returns boolean.
+    function confirmAction(message) {
+      return window.confirm(message);
+    }
+  </script>
+</head>
+<body hx-headers='js:{"X-CSRF-Token": getCsrfToken()}'>
+  <div class="app-shell">
+    <nav class="sidebar">
+      <h2>ReclaimOps</h2>
+      <a href="/ui/tickets">Tickets</a>
+      <a href="/ui/qc">QC &amp; Traceability</a>
+      <a href="/ui/tables">Tables / Rooms</a>
+      <a href="/ui/notifications">Notifications</a>
+      <a href="/ui/members">Members</a>
+      <a href="/ui/exports">Reports &amp; Exports</a>
+      <a href="/ui/schedules">Schedules</a>
+      <a href="#" hx-post="/api/auth/logout" hx-swap="none"
+         onclick="setTimeout(()=>location.href='/ui/login',300)"
+         style="margin-top:2rem;color:#f87171">Logout</a>
+    </nav>
+    <main class="main-content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</body>
+</html>

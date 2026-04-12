@@ -1,0 +1,189 @@
+{% extends "base.html" %}
+{% block title %}QC & Traceability{% endblock %}
+{% block content %}
+<h1>Quality Control &amp; Traceability</h1>
+
+<div class="card">
+  <h3>QC Work Queue</h3>
+  <button class="btn btn-sm btn-primary" hx-get="/ui/partials/qc/queue" hx-target="#qc-queue" hx-swap="innerHTML">Refresh</button>
+  <div id="qc-queue" class="mt-1"
+       hx-get="/ui/partials/qc/queue"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="msg msg-info">Loading QC queue...</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Create QC Inspection</h3>
+  <div id="qc-result"></div>
+  <form id="qc-form">
+    <div class="form-row">
+      <div class="form-group"><label>Ticket ID</label><input name="ticket_id" type="number" required></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Actual Weight (lbs)</label><input name="actual_weight_lbs" type="number" step="0.1" required></div>
+      <div class="form-group"><label>Lot Size</label><input name="lot_size" type="number" value="10" required></div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Nonconformances</label><input name="nonconformance_count" type="number" value="0" required></div>
+      <div class="form-group"><label>Outcome</label>
+        <select name="inspection_outcome" required>
+          <option value="pass">Pass</option><option value="fail">Fail</option><option value="pass_with_concession">Pass with Concession</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-group"><label>Notes</label><textarea name="notes"></textarea></div>
+    <button type="submit" class="btn btn-primary">Record Inspection</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Compute Final Payout</h3>
+  <p class="text-sm text-muted">Weight is taken from the QC inspection record. Optional field is a safety cross-check only.</p>
+  <form id="qc-final-form">
+    <div class="form-row">
+      <div class="form-group"><label>Ticket ID</label><input name="ticket_id" type="number" required></div>
+      <div class="form-group"><label>Weight Cross-Check (optional)</label><input name="actual_weight_lbs" type="number" step="0.1" placeholder="Leave blank to use QC value"></div>
+    </div>
+    <button type="submit" class="btn btn-primary">Compute Final Payout</button>
+  </form>
+  <div id="qc-final-result" class="mt-1"></div>
+</div>
+
+<div class="card">
+  <h3>Quarantine</h3>
+  <div class="form-row">
+    <div class="form-group"><label>Ticket ID</label><input id="q-ticket" type="number"></div>
+    <div class="form-group"><label>Batch ID</label><input id="q-batch" type="number"></div>
+  </div>
+  <button class="btn btn-warn btn-sm" onclick="createQuarantine()">Create Quarantine</button>
+  <div class="mt-1">
+    <div class="form-row">
+      <div class="form-group"><label>Quarantine ID</label><input id="q-id" type="number"></div>
+      <div class="form-group"><label>Disposition</label>
+        <select id="q-disp"><option value="return_to_customer">Return to Customer</option><option value="scrap">Scrap</option><option value="concession_acceptance">Concession Acceptance</option></select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group"><label>Supervisor ID (concession)</label><input id="q-sup-id" type="number"></div>
+      <div class="form-group"><label>Supervisor Username</label><input id="q-sup-name"></div>
+      <div class="form-group"><label>Supervisor Password</label><input id="q-sup-pwd" type="password" placeholder="Required for concession"></div>
+    </div>
+    <button class="btn btn-success btn-sm" onclick="resolveQuarantine()">Resolve</button>
+  </div>
+  <div id="q-result" class="mt-1"></div>
+</div>
+
+<div class="card">
+  <h3>Batch Traceability</h3>
+  <div class="form-row">
+    <div class="form-group"><label>Batch Code</label><input id="batch-code"></div>
+    <div class="form-group"><label>Store ID</label><input id="batch-store" type="number" value="1"></div>
+  </div>
+  <button class="btn btn-primary btn-sm" onclick="createBatch()">Create Batch</button>
+  <div class="form-row mt-1">
+    <div class="form-group"><label>Batch ID</label><input id="batch-id" type="number"></div>
+    <div class="form-group"><label>Target Status</label>
+      <select id="batch-status"><option>received</option><option>issued</option><option>finished</option><option>recalled</option></select>
+    </div>
+  </div>
+  <button class="btn btn-sm btn-warn" onclick="transitionBatch()">Transition</button>
+  <button class="btn btn-sm btn-primary" onclick="viewLineage()">View Lineage</button>
+  <div id="batch-result" class="mt-1"></div>
+</div>
+
+<div class="card">
+  <h3>Recall Generation</h3>
+  <div class="form-row">
+    <div class="form-group"><label>Batch Filter</label><input id="recall-batch"></div>
+    <div class="form-group"><label>Date Start</label><input id="recall-start" type="date"></div>
+    <div class="form-group"><label>Date End</label><input id="recall-end" type="date"></div>
+  </div>
+  <button class="btn btn-danger btn-sm" onclick="generateRecall()">Generate Recall List</button>
+  <div id="recall-result" class="mt-1"></div>
+</div>
+
+<script>
+const api = (url, body, method='POST') => fetch(url, {method,headers:{'Content-Type':'application/json'},...(method==='GET'?{}:{body:JSON.stringify(body)})}).then(r=>r.json());
+const showR = (el, d) => { el.innerHTML = d.error ? '<div class="msg msg-error">'+H(d.error.message)+'</div>' : '<div class="msg msg-success">'+H(JSON.stringify(d.data,null,1))+'</div>'; };
+const refreshQCQueue = () => htmx.trigger('#qc-queue', 'load');
+
+// Pre-fill inspection form from queue
+function startInspection(ticketId) {
+  document.querySelector('#qc-form [name="ticket_id"]').value = ticketId;
+  document.querySelector('#qc-form [name="actual_weight_lbs"]').focus();
+}
+function startResolve(quarantineId) {
+  document.getElementById('q-id').value = quarantineId;
+  document.getElementById('q-disp').focus();
+}
+
+document.getElementById('qc-form').addEventListener('submit', async e => {
+  e.preventDefault(); const fd = new FormData(e.target), b = {};
+  fd.forEach((v,k)=>b[k]=['ticket_id','store_id','lot_size','nonconformance_count'].includes(k)?parseInt(v):k==='actual_weight_lbs'?parseFloat(v):v);
+  const r = await api('/api/qc/inspections', b);
+  const el = document.getElementById('qc-result');
+  if(r.error){el.innerHTML='<div class="msg msg-error">'+H(r.error.message)+'</div>';return;}
+  const i=r.data;
+  el.innerHTML='<div class="msg msg-success">Inspection #'+H(i.id)+' — <span class="badge badge-'+H(i.inspection_outcome)+'">'+H(i.inspection_outcome)+'</span> | Sample: '+H(i.sample_size)+'/'+H(i.lot_size)+(i.quarantine_required?' | <strong>Quarantine Required</strong>':'')+'</div>';
+  refreshQCQueue();
+});
+
+document.getElementById('qc-final-form').addEventListener('submit', async e => {
+  e.preventDefault(); const fd = new FormData(e.target);
+  const tid = fd.get('ticket_id');
+  const wt = fd.get('actual_weight_lbs');
+  const body = wt ? {actual_weight_lbs: parseFloat(wt)} : {};
+  const r = await api('/api/tickets/'+tid+'/qc-final', body);
+  const el = document.getElementById('qc-final-result');
+  if(r.error){el.innerHTML='<div class="msg msg-error">'+H(r.error.message)+'</div>';return;}
+  el.innerHTML='<div class="msg msg-'+(r.data.approval_required?'error':'success')+'">'
+    +'Status: '+H(r.data.ticket.status)+'<br>Final Payout: $'+H((r.data.ticket.final_payout||0).toFixed(2))
+    +(r.data.approval_required?'<br><strong>Variance approval required! ($'+H(r.data.variance_amount.toFixed(2))+' / '+H(r.data.variance_pct)+'%)</strong>':'')
+    +'</div>';
+  refreshQCQueue();
+});
+
+async function createQuarantine(){
+  showR(document.getElementById('q-result'),await api('/api/qc/quarantine',{ticket_id:+document.getElementById('q-ticket').value,batch_id:+document.getElementById('q-batch').value}));
+  refreshQCQueue();
+}
+async function resolveQuarantine(){
+  const b={disposition:document.getElementById('q-disp').value};
+  const sid=document.getElementById('q-sup-id').value;
+  if(sid){b.concession_supervisor_id=+sid;b.concession_supervisor_username=document.getElementById('q-sup-name').value;b.concession_supervisor_password=document.getElementById('q-sup-pwd').value;}
+  showR(document.getElementById('q-result'),await api('/api/qc/quarantine/'+document.getElementById('q-id').value+'/resolve',b));
+  refreshQCQueue();
+}
+async function createBatch(){showR(document.getElementById('batch-result'),await api('/api/qc/batches',{store_id:+document.getElementById('batch-store').value,batch_code:document.getElementById('batch-code').value}));}
+async function transitionBatch(){showR(document.getElementById('batch-result'),await api('/api/qc/batches/'+document.getElementById('batch-id').value+'/transition',{target_status:document.getElementById('batch-status').value}));}
+async function viewLineage(){showR(document.getElementById('batch-result'),await api('/api/qc/batches/'+document.getElementById('batch-id').value+'/lineage',null,'GET'));}
+async function generateRecall(){
+  const b={};const bf=document.getElementById('recall-batch').value;if(bf)b.batch_filter=bf;
+  const ds=document.getElementById('recall-start').value;if(ds)b.date_start=ds;
+  const de=document.getElementById('recall-end').value;if(de)b.date_end=de;
+  const r=await api('/api/qc/recalls',b);
+  const el=document.getElementById('recall-result');
+  if(r.error){el.innerHTML='<div class="msg msg-error">'+H(r.error.message)+'</div>';return;}
+  const run=r.data;
+  // Fetch full recall data with structured output
+  const detail=await api('/api/qc/recalls/'+run.id,null,'GET');
+  if(detail.error){el.innerHTML='<div class="msg msg-error">'+H(detail.error.message)+'</div>';return;}
+  const d=detail.data;
+  const rd=d.result_data||{};
+  let html='<div class="msg msg-success">Recall #'+H(d.id)+' — '+H(d.result_count)+' events found</div>';
+  if(rd.affected_batches&&rd.affected_batches.length>0){
+    html+='<h4 class="mt-1">Affected Batches ('+H(rd.total_batches)+')</h4>';
+    html+='<table><thead><tr><th>Batch</th><th>Code</th><th>Status</th><th>Source Ticket</th></tr></thead><tbody>';
+    rd.affected_batches.forEach(b=>{
+      html+='<tr><td>#'+H(b.batch_id)+'</td><td>'+H(b.batch_code)+'</td><td><span class="badge badge-'+H(b.status)+'">'+H(b.status)+'</span></td><td>'+(b.source_ticket_id?'#'+H(b.source_ticket_id):'—')+'</td></tr>';
+    });
+    html+='</tbody></table>';
+  } else {
+    html+='<div class="msg msg-info mt-1">No affected batches found.</div>';
+  }
+  el.innerHTML=html;
+}
+</script>
+{% endblock %}

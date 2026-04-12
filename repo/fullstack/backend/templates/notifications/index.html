@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}Notifications{% endblock %}
+{% block content %}
+<h1>Notification Center</h1>
+
+<div class="card">
+  <h3>Pending Retries</h3>
+  <button class="btn btn-warn btn-sm" hx-get="/ui/partials/notifications/retries" hx-target="#retry-list" hx-swap="innerHTML">Refresh</button>
+  <div id="retry-list" class="mt-1"
+       hx-get="/ui/partials/notifications/retries"
+       hx-trigger="load"
+       hx-swap="innerHTML">
+    <div class="msg msg-info">Loading pending retries...</div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Message History</h3>
+  <div class="form-row">
+    <div class="form-group"><label>Ticket ID</label><input id="hist-ticket" type="number"></div>
+    <div class="form-group" style="padding-top:1.2rem">
+      <button class="btn btn-primary btn-sm"
+              onclick="loadHistoryHTMX()">Load</button>
+    </div>
+  </div>
+  <div id="history-list"></div>
+</div>
+
+<div class="card">
+  <h3>Log Message / Call Attempt</h3>
+  <div id="msg-result"></div>
+  <form id="msg-form">
+    <div class="form-row">
+      <div class="form-group"><label>Ticket ID</label><input name="ticket_id" type="number" required></div>
+      <div class="form-group"><label>Channel</label>
+        <select name="contact_channel"><option value="logged_message">Logged Message</option><option value="phone_call">Phone Call</option></select>
+      </div>
+    </div>
+    <div class="form-group"><label>Message Body</label><textarea name="message_body" required></textarea></div>
+    <div class="form-row">
+      <div class="form-group"><label>Call Status (if phone)</label>
+        <select name="call_attempt_status"><option value="">N/A</option><option value="succeeded">Succeeded</option><option value="failed">Failed</option><option value="voicemail">Voicemail</option><option value="no_answer">No Answer</option></select>
+      </div>
+      <div class="form-group"><label>Retry in (minutes)</label><input name="retry_minutes" type="number"></div>
+    </div>
+    <button type="submit" class="btn btn-primary">Log</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Send from Template</h3>
+  <form id="tpl-form">
+    <div class="form-row">
+      <div class="form-group"><label>Ticket ID</label><input name="ticket_id" type="number" required></div>
+      <div class="form-group"><label>Template Code</label>
+        <select name="template_code"><option>accepted</option><option>rescheduled</option><option>arrived</option><option>completed</option><option>refunded</option></select>
+      </div>
+    </div>
+    <div class="form-group"><label>Context JSON</label><input name="context" value='{"customer_name":"Customer"}' style="font-family:monospace"></div>
+    <button type="submit" class="btn btn-primary">Send Template</button>
+  </form>
+  <div id="tpl-result" class="mt-1"></div>
+</div>
+
+<script>
+const api=(u,b,m='POST')=>fetch(u,{method:m,headers:{'Content-Type':'application/json'},...(m==='GET'?{}:{body:JSON.stringify(b)})}).then(r=>r.json());
+const showR=(el,d)=>{el.innerHTML=d.error?'<div class="msg msg-error">'+H(d.error.message)+'</div>':'<div class="msg msg-success">Logged #'+H(d.data?.id||'OK')+'</div>';};
+
+document.getElementById('msg-form').addEventListener('submit',async e=>{
+  e.preventDefault();const fd=new FormData(e.target),b={};
+  fd.forEach((v,k)=>{if(!v)return;b[k]=['ticket_id','retry_minutes'].includes(k)?+v:v;});
+  showR(document.getElementById('msg-result'),await api('/api/notifications/messages',b));
+  htmx.trigger('#retry-list','load');
+});
+
+document.getElementById('tpl-form').addEventListener('submit',async e=>{
+  e.preventDefault();const fd=new FormData(e.target);
+  const b={ticket_id:+fd.get('ticket_id'),template_code:fd.get('template_code'),context:JSON.parse(fd.get('context'))};
+  showR(document.getElementById('tpl-result'),await api('/api/notifications/messages/template',b));
+});
+
+function loadHistoryHTMX(){
+  const tid=document.getElementById('hist-ticket').value;
+  if(!tid)return;
+  const el=document.getElementById('history-list');
+  el.innerHTML='<div class="msg msg-info">Loading...</div>';
+  htmx.ajax('GET','/ui/partials/notifications/messages/'+tid,{target:'#history-list',swap:'innerHTML'});
+}
+</script>
+{% endblock %}

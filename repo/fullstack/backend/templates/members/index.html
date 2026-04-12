@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Members{% endblock %}
+{% block content %}
+<h1>Club &amp; Member Administration</h1>
+
+<div class="card">
+  <h3>Create Organization</h3>
+  <div id="org-result"></div>
+  <form id="org-form">
+    <div class="form-row">
+      <div class="form-group"><label>Name</label><input name="name" required></div>
+      <div class="form-group"><label>Department</label><input name="department"></div>
+      <div class="form-group"><label>Route Code</label><input name="route_code"></div>
+    </div>
+    <button type="submit" class="btn btn-primary">Create Organization</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Add Member</h3>
+  <div id="member-result"></div>
+  <form id="member-form">
+    <div class="form-row">
+      <div class="form-group"><label>Organization ID</label><input name="org_id" type="number" required></div>
+      <div class="form-group"><label>Full Name</label><input name="full_name" required></div>
+      <div class="form-group"><label>Group</label><input name="group"></div>
+    </div>
+    <button type="submit" class="btn btn-primary">Add Member</button>
+  </form>
+</div>
+
+<div class="card">
+  <h3>Member Actions</h3>
+  <div class="form-row">
+    <div class="form-group"><label>Member ID</label><input id="m-id" type="number"></div>
+  </div>
+  <div style="display:flex;gap:.5rem">
+    <button class="btn btn-danger btn-sm" onclick="removeMember()">Remove</button>
+    <span>
+      <input id="xfer-org" type="number" placeholder="Target Org ID" style="width:120px;padding:.3rem">
+      <button class="btn btn-warn btn-sm" onclick="transferMember()">Transfer</button>
+    </span>
+    <button class="btn btn-primary btn-sm" onclick="viewHistory()">View History</button>
+  </div>
+  <div id="member-action-result" class="mt-1"></div>
+</div>
+
+<div class="card">
+  <h3>CSV Import</h3>
+  <p class="text-sm text-muted mb-1">CSV must have columns: full_name, organization_id. Optional: group. Max 5MB.</p>
+  <form id="csv-form" enctype="multipart/form-data">
+    <input type="file" name="file" accept=".csv" required>
+    <button type="submit" class="btn btn-primary mt-1">Upload &amp; Import</button>
+  </form>
+  <div id="csv-result" class="mt-1"></div>
+</div>
+
+<script>
+const api=(u,b,m='POST')=>fetch(u,{method:m,headers:{'Content-Type':'application/json'},...(m==='GET'?{}:{body:JSON.stringify(b)})}).then(r=>r.json());
+const showR=(el,d)=>{el.innerHTML=d.error?'<div class="msg msg-error">'+H(d.error.message)+'</div>':'<div class="msg msg-success">'+H(JSON.stringify(d.data,null,1))+'</div>';};
+
+document.getElementById('org-form').addEventListener('submit',async e=>{
+  e.preventDefault();const fd=new FormData(e.target),b={};
+  fd.forEach((v,k)=>{if(v)b[k]=v;});
+  showR(document.getElementById('org-result'),await api('/api/members/organizations',b));
+});
+
+document.getElementById('member-form').addEventListener('submit',async e=>{
+  e.preventDefault();const fd=new FormData(e.target),b={};
+  fd.forEach((v,k)=>{if(v)b[k]=k==='org_id'?+v:v;});
+  showR(document.getElementById('member-result'),await api('/api/members',b));
+});
+
+const mid=()=>document.getElementById('m-id').value;
+const memberRes=()=>document.getElementById('member-action-result');
+
+async function removeMember(){
+  if (!mid()) { showMsg(memberRes(),'error','Enter a member ID.'); return; }
+  if (!confirmAction('Remove member #' + mid() + '? This marks them as left.')) return;
+  const r = await api('/api/members/'+mid()+'/remove',{});
+  showApiResult(memberRes(), r, d => 'Member "' + escapeHtml(d.full_name) + '" marked as left.');
+}
+
+async function transferMember(){
+  if (!mid()) { showMsg(memberRes(),'error','Enter a member ID.'); return; }
+  const target = document.getElementById('xfer-org').value;
+  if (!target) { showMsg(memberRes(),'error','Target organization ID is required.'); return; }
+  const r = await api('/api/members/'+mid()+'/transfer',{target_org_id:+target});
+  showApiResult(memberRes(), r, d => 'Member transferred to org #' + d.club_organization_id + '.');
+}
+async function viewHistory(){
+  const r=await api('/api/members/'+mid()+'/history',null,'GET');
+  const el=document.getElementById('member-action-result');
+  if(r.error){el.innerHTML='<div class="msg msg-error">'+H(r.error.message)+'</div>';return;}
+  if(!r.data?.length){el.innerHTML='<div class="msg msg-info">No history</div>';return;}
+  el.innerHTML='<div class="timeline">'+r.data.map(e=>'<div class="timeline-item"><strong>'+H(e.event_type)+'</strong><div class="ts">'+H(e.created_at)+'</div></div>').join('')+'</div>';
+}
+
+document.getElementById('csv-form').addEventListener('submit',async e=>{
+  e.preventDefault();
+  const fd=new FormData(e.target);
+  const r=await fetch('/api/members/import',{method:'POST',body:fd}).then(r=>r.json());
+  const el=document.getElementById('csv-result');
+  if(r.error){el.innerHTML='<div class="msg msg-error">'+H(r.error.message)+'</div>';return;}
+  el.innerHTML='<div class="msg msg-success">Imported: '+H(r.data.imported)+' | Errors: '+H(r.data.errors.length)+'</div>'
+    +(r.data.errors.length?'<table><tr><th>Row</th><th>Error</th></tr>'+r.data.errors.map(e=>'<tr><td>'+H(e.row)+'</td><td>'+H(e.error)+'</td></tr>').join('')+'</table>':'');
+});
+</script>
+{% endblock %}
