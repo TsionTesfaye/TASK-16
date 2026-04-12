@@ -1,215 +1,214 @@
-# ReclaimOps Offline Operations Suite — Static Delivery Acceptance & Architecture Audit
+# ReclaimOps Static Delivery Acceptance + Architecture Audit (2026-04-12)
 
 ## 1. Verdict
 - **Overall conclusion: Partial Pass**
-- The repository is substantial and largely aligned to the prompt, with strong security primitives, layered architecture, and broad test coverage.
-- However, there are **material requirement-fit and completeness gaps** (notably recall-list output behavior and missing operational setup path for service tables/rooms) plus at least one **function-level authorization weakness**.
+- Basis: The repository is a real, substantial full-stack delivery with strong coverage of core offline workflows, security controls, and test assets; however, there are material authorization and requirement-fit gaps that prevent a clean pass.
 
 ## 2. Scope and Static Verification Boundary
-- **What was reviewed**
-  - Core docs/config: `README.md`, `docker-compose.yml`, `run_tests.sh`, backend entrypoint and dependency manifests.
-  - API/UI wiring and business logic: routes, services, repositories, models, migrations, templates, CSS.
-  - Security/auth/session/CSRF/crypto/audit mechanisms.
-  - Unit/API test files and test entrypoints.
-- **What was not reviewed**
-  - Runtime behavior, browser interactions, TLS handshake behavior in real network, Docker/container runtime behavior, and actual test execution outcomes.
-- **What was intentionally not executed**
-  - Project startup, tests, Docker, external services.
-- **Claims requiring manual verification**
-  - End-to-end TLS/browser behavior and certificate trust UX.
-  - Real HTMX runtime interaction behavior under browser/network timing.
-  - Actual operational performance under concurrent multi-user load.
+- **What was reviewed**: README, project structure, Flask entrypoint/config, all route modules, core services/repositories/migrations, UI templates/CSS, and unit/API test files.
+- **What was not reviewed**: Runtime behavior under real browser/network/container execution; performance under load; certificate deployment correctness in a live LAN; telephony behavior on workstation hardware.
+- **Intentionally not executed**: App startup, Docker, tests, external services.
+- **Claims requiring manual verification**:
+  - End-to-end HTTPS certificate trust and browser UX on target LAN.
+  - One-tap dialing behavior on actual workstation OS/device.
+  - Real operator workflows across concurrent users and long-running sessions.
 
 ## 3. Repository / Requirement Mapping Summary
-- **Prompt core goals mapped**: buyback intake + payout rules/caps, QC/variance dual-control, traceability/quarantine/recall, table-room workflow, offline notification center, member lifecycle with CSV import/export, operations reporting/export approvals, offline security controls.
-- **Implementation areas mapped**: Flask blueprints (`src/routes`), business services (`src/services`), SQLite schema (`migrations/001_initial_schema.sql`), UI templates (`templates/*`), security modules (`src/security/*`), audit/logging, and tests (`unit_tests`, `API_tests`).
-- **Primary deltas**: recall generation persists only run metadata/count (not actionable recall list output), service-table provisioning path is not exposed for normal setup, and some UX requirement details are only partially surfaced.
+- **Prompt core goal mapped**: Offline HTMX + Flask + SQLite operations suite for textiles buyback with ticketing/pricing/QC/traceability/tables/notifications/members/reports/security.
+- **Main implementation areas mapped**:
+  - Intake/pricing/variance/refund/dial: `fullstack/backend/src/services/ticket_service.py`
+  - QC/quarantine/sampling: `fullstack/backend/src/services/qc_service.py`
+  - Batch genealogy/recall: `fullstack/backend/src/services/traceability_service.py`
+  - Tables merge/transfer/timeline: `fullstack/backend/src/services/table_service.py`
+  - Notifications + retries/templates: `fullstack/backend/src/services/notification_service.py`
+  - Members + CSV import/export: `fullstack/backend/src/services/member_service.py`
+  - Reports/exports/approval/watermark: `fullstack/backend/src/services/export_service.py`
+  - Auth/session/CSRF/cookies/security primitives: `fullstack/backend/src/services/auth_service.py`, `fullstack/backend/src/routes/helpers.py`, `fullstack/backend/src/security/*`
 
 ## 4. Section-by-section Review
 
-### 4.1 Hard Gates
+### 1. Hard Gates
 
-#### 4.1.1 Documentation and static verifiability
+#### 1.1 Documentation and static verifiability
 - **Conclusion: Pass**
-- **Rationale**: Startup instructions, security mode guidance, environment variables, project structure, and test commands are present and coherent with entrypoints.
-- **Evidence**: `README.md:7`, `README.md:41`, `README.md:58`, `README.md:146`, `docker-compose.yml:2`, `fullstack/backend/app.py:119`
-- **Manual verification note**: Runtime correctness of documented startup commands is **Manual Verification Required**.
+- **Rationale**: Clear startup, TLS profiles, bootstrap sequence, test commands, and architecture are documented; entry points and paths are statically discoverable.
+- **Evidence**: `README.md:7`, `README.md:25`, `README.md:42`, `README.md:59`, `docker-compose.yml:1`, `fullstack/backend/app.py:119`
 
-#### 4.1.2 Material deviation from Prompt
+#### 1.2 Material deviation from Prompt
 - **Conclusion: Partial Pass**
-- **Rationale**: Most business scope is implemented, but recall generation and table/room operational readiness diverge from expected 0→1 behavior.
-- **Evidence**: `fullstack/backend/src/services/traceability_service.py:254`, `fullstack/backend/src/services/traceability_service.py:295`, `fullstack/backend/src/routes/qc_routes.py:185`, `fullstack/backend/src/routes/table_routes.py:12`, `README.md:25`
+- **Rationale**: Core scenario is implemented, but there is a material authz gap in HTMX partial reads and a schema/API mismatch for table area types.
+- **Evidence**: `fullstack/backend/src/routes/partials_routes.py:27`, `fullstack/backend/src/routes/partials_routes.py:98`, `fullstack/backend/src/services/auth_service.py:166`, `fullstack/backend/migrations/001_initial_schema.sql:253`, `fullstack/backend/src/routes/admin_routes.py:154`, `README.md:30`
 
-### 4.2 Delivery Completeness
+### 2. Delivery Completeness
 
-#### 4.2.1 Core functional coverage from Prompt
+#### 2.1 Core prompt requirements coverage
 - **Conclusion: Partial Pass**
-- **Rationale**: Core modules exist (tickets, QC, approvals, exports, notifications, members), but at least two explicit/implicit core requirements are incompletely realized (recall-list output and practical table provisioning path).
-- **Evidence**: `fullstack/backend/src/services/ticket_service.py:267`, `fullstack/backend/src/services/qc_service.py:83`, `fullstack/backend/src/services/export_service.py:326`, `fullstack/backend/src/services/traceability_service.py:289`, `fullstack/backend/src/routes/table_routes.py:12`
+- **Rationale**: Most core functional requirements are implemented (ticket pricing/caps/variance dual-control, QC escalation/quarantine, traceability, tables, notifications, members, reports/exports). Gaps are in authorization boundaries and strict file-type validation semantics.
+- **Evidence**:
+  - Pricing/caps/variance: `fullstack/backend/src/services/pricing_service.py:163`, `fullstack/backend/src/services/pricing_service.py:243`, `fullstack/backend/src/services/ticket_service.py:317`, `fullstack/backend/src/services/ticket_service.py:422`
+  - QC escalation/quarantine: `fullstack/backend/src/services/qc_service.py:83`, `fullstack/backend/src/services/qc_service.py:95`, `fullstack/backend/src/services/qc_service.py:227`, `fullstack/backend/src/services/qc_service.py:317`
+  - Traceability/recall: `fullstack/backend/src/services/traceability_service.py:138`, `fullstack/backend/src/services/traceability_service.py:220`
+  - Tables: `fullstack/backend/src/services/table_service.py:82`, `fullstack/backend/src/services/table_service.py:206`, `fullstack/backend/src/services/table_service.py:268`, `fullstack/backend/src/services/table_service.py:330`
+  - Notifications/retries/templates: `fullstack/backend/src/services/notification_service.py:67`, `fullstack/backend/migrations/004_seed_notification_templates.sql:7`
+  - Members CSV: `fullstack/backend/src/routes/member_routes.py:177`, `fullstack/backend/src/services/member_service.py:270`
+  - Reports/exports: `fullstack/backend/src/services/export_service.py:450`, `fullstack/backend/src/services/export_service.py:422`
 
-#### 4.2.2 End-to-end 0→1 deliverable vs demo/fragment
-- **Conclusion: Partial Pass**
-- **Rationale**: Repository is complete and product-like, but some flows require undocumented/manual DB setup for operational use (service tables), reducing true 0→1 readiness.
-- **Evidence**: `README.md:25`, `fullstack/backend/migrations/001_initial_schema.sql:249`, `fullstack/backend/src/services/table_service.py:103`, `fullstack/backend/src/routes/table_routes.py:15`
-
-### 4.3 Engineering and Architecture Quality
-
-#### 4.3.1 Structure and module decomposition
+#### 2.2 End-to-end 0→1 deliverable vs partial/demo
 - **Conclusion: Pass**
-- **Rationale**: Clear layered split (routes/services/repositories/models/security), with focused responsibilities and non-trivial domain modules.
-- **Evidence**: `README.md:91`, `fullstack/backend/src/routes/helpers.py:44`, `fullstack/backend/src/services/pricing_service.py:24`, `fullstack/backend/src/repositories/base_repository.py:1`
+- **Rationale**: Multi-module codebase with migrations, API/UI, security, and extensive tests; not a toy snippet.
+- **Evidence**: `README.md:25`, `README.md:59`, `fullstack/backend/migrations/001_initial_schema.sql:1`, `API_tests/test_routes.py:579`, `unit_tests/test_services.py:1`
 
-#### 4.3.2 Maintainability/extensibility
-- **Conclusion: Partial Pass**
-- **Rationale**: Codebase is generally maintainable; however, some requirement-critical behavior is not fully surfaced via API/UI (eligibility window fields in admin pricing rule create path; recall outputs).
-- **Evidence**: `fullstack/backend/src/services/pricing_service.py:41`, `fullstack/backend/src/routes/admin_routes.py:84`, `fullstack/backend/src/services/traceability_service.py:289`
+### 3. Engineering and Architecture Quality
 
-### 4.4 Engineering Details and Professionalism
-
-#### 4.4.1 Error handling, logging, validation, API design
+#### 3.1 Structure and module decomposition
 - **Conclusion: Pass**
-- **Rationale**: Strong validation and consistent JSON error envelopes; audit logging, immutable audit triggers, CSRF/session checks, and DB error handlers are present.
-- **Evidence**: `fullstack/backend/src/routes/helpers.py:70`, `fullstack/backend/src/routes/helpers.py:240`, `fullstack/backend/app.py:168`, `fullstack/backend/migrations/001_initial_schema.sql:405`, `fullstack/backend/src/services/audit_service.py:1`
+- **Rationale**: Clear layered separation (routes/services/repos/models/security), with business logic concentrated in services.
+- **Evidence**: `README.md:92`, `fullstack/backend/src/routes/helpers.py:109`, `fullstack/backend/src/services/ticket_service.py:58`, `fullstack/backend/src/repositories/user_session_repository.py:7`
 
-#### 4.4.2 Product/service realism vs demo
+#### 3.2 Maintainability and extensibility
 - **Conclusion: Partial Pass**
-- **Rationale**: Overall product shape is realistic; remaining gaps are feature-completion and authorization refinement rather than toy architecture.
-- **Evidence**: `README.md:111`, `fullstack/backend/src/services/export_service.py:250`, `fullstack/backend/src/services/schedule_service.py:107`
+- **Rationale**: Generally maintainable with good transaction guards and role/store authorization helpers; weakened by inconsistent area-type contract and partial-route authz bypass pattern.
+- **Evidence**: `fullstack/backend/src/services/_authz.py:22`, `fullstack/backend/src/services/_tx.py:1`, `fullstack/backend/src/routes/partials_routes.py:27`, `fullstack/backend/src/routes/admin_routes.py:154`, `fullstack/backend/migrations/001_initial_schema.sql:253`
 
-### 4.5 Prompt Understanding and Requirement Fit
+### 4. Engineering Details and Professionalism
 
-#### 4.5.1 Business goal, semantics, constraints fit
+#### 4.1 Error handling, logging, validation, API design
 - **Conclusion: Partial Pass**
-- **Rationale**: Business intent is largely understood and implemented; key semantic misses remain around actionable recall-list generation and Notification Center one-tap dialing placement.
-- **Evidence**: `fullstack/backend/src/services/traceability_service.py:4`, `fullstack/backend/src/services/traceability_service.py:295`, `fullstack/backend/templates/notifications/index.html:6`, `fullstack/backend/templates/tickets/index.html:157`
-- **Manual verification note**: UX forcing behaviors are partially statically evident, but final operator workflow feel is **Manual Verification Required**.
+- **Rationale**: Strong structured error handling and logging strategy; key weakness is authorization correctness in specific HTMX read endpoints and incomplete file-type hardening semantics.
+- **Evidence**: `fullstack/backend/app.py:168`, `fullstack/backend/app.py:178`, `fullstack/backend/app.py:11`, `fullstack/backend/src/routes/helpers.py:70`, `fullstack/backend/src/routes/partials_routes.py:98`, `fullstack/backend/src/routes/member_routes.py:184`, `fullstack/backend/src/services/member_service.py:274`
 
-### 4.6 Aesthetics (frontend)
+#### 4.2 Product-like vs demo-like
+- **Conclusion: Pass**
+- **Rationale**: Delivery has real data model breadth, migration history, role workflows, and operational features.
+- **Evidence**: `fullstack/backend/migrations/001_initial_schema.sql:20`, `fullstack/backend/migrations/005_price_overrides.sql:1`, `fullstack/backend/src/services/export_service.py:241`, `fullstack/backend/src/services/schedule_service.py:107`
 
-#### 4.6.1 Visual/interaction quality fit
+### 5. Prompt Understanding and Requirement Fit
+
+#### 5.1 Business goal and constraints fit
 - **Conclusion: Partial Pass**
-- **Rationale**: UI is functional, consistent, and readable with clear sections/states; however it is utilitarian and static review cannot confirm actual rendering fidelity on devices.
-- **Evidence**: `fullstack/backend/templates/base.html:82`, `fullstack/backend/templates/tables/index.html:45`, `fullstack/backend/static/css/style.css:17`, `fullstack/backend/static/css/style.css:67`
-- **Manual verification note**: Responsive behavior and real browser rendering quality are **Cannot Confirm Statistically**.
+- **Rationale**: The business process is understood and largely implemented; role/store authorization edge cases and contract mismatches show some requirement-fit drift.
+- **Evidence**: `fullstack/backend/src/services/ticket_service.py:247`, `fullstack/backend/src/services/export_service.py:460`, `fullstack/backend/src/services/qc_service.py:3`, `fullstack/backend/src/routes/partials_routes.py:27`, `README.md:30`
+
+### 6. Aesthetics (frontend)
+
+#### 6.1 Visual/interaction quality
+- **Conclusion: Pass**
+- **Rationale**: Functional and consistent operator UI with clear hierarchy, feedback states, and HTMX-driven updates. Visual polish is modest but coherent.
+- **Evidence**: `fullstack/backend/templates/base.html:82`, `fullstack/backend/static/css/style.css:9`, `fullstack/backend/static/css/style.css:57`, `fullstack/backend/templates/tickets/index.html:36`
+- **Manual verification note**: Responsive behavior and interaction polish still require browser validation.
 
 ## 5. Issues / Suggestions (Severity-Rated)
 
-### [High] Recall generation does not produce actionable recall list output
+### 5.1 High
+
+1. **Severity: High**
+- **Title**: HTMX partial read endpoints can bypass store isolation for unpinned non-admin users
 - **Conclusion**: Fail
-- **Evidence**: `fullstack/backend/src/services/traceability_service.py:254`, `fullstack/backend/src/services/traceability_service.py:295`, `fullstack/backend/src/routes/qc_routes.py:185`, `fullstack/backend/src/models/recall_run.py:13`
-- **Impact**: The system records only `result_count` metadata; operators do not receive a concrete recall list (affected batches/events/output artifact), weakening compliance/operational response.
-- **Minimum actionable fix**: Persist and return concrete recall output (e.g., event/batch list JSON and/or generated CSV path in `output_path`) and expose it in API/UI.
+- **Evidence**: `fullstack/backend/src/routes/partials_routes.py:27`, `fullstack/backend/src/routes/partials_routes.py:33`, `fullstack/backend/src/routes/partials_routes.py:98`, `fullstack/backend/src/routes/partials_routes.py:360`, `fullstack/backend/src/routes/partials_routes.py:417`, `fullstack/backend/src/routes/partials_routes.py:493`, `fullstack/backend/src/services/auth_service.py:166`, `fullstack/backend/src/services/auth_service.py:201`, `fullstack/backend/migrations/001_initial_schema.sql:22`
+- **Impact**: If a non-admin user exists with `store_id=NULL`, they can provide `store_id` query params and read queue/board/export partial data across stores.
+- **Minimum actionable fix**:
+  - Enforce `store_id` required for all non-admin users in `AuthService.create_user`.
+  - In `_store_id_for_actor`, honor query `store_id` **only** for `administrator`; otherwise require session store.
+  - Add service-layer or helper-level store checks for all partial read endpoints.
 
-### [High] Table/room module lacks practical 0→1 provisioning path
+### 5.2 Medium
+
+2. **Severity: Medium**
+- **Title**: Role-based least-privilege not enforced on UI pages and several read partials
+- **Conclusion**: Partial Fail
+- **Evidence**: `fullstack/backend/src/routes/ui_routes.py:42`, `fullstack/backend/src/routes/ui_routes.py:60`, `fullstack/backend/src/routes/partials_routes.py:98`, `fullstack/backend/src/routes/partials_routes.py:360`, `fullstack/backend/src/routes/partials_routes.py:417`, `fullstack/backend/src/routes/partials_routes.py:493`
+- **Impact**: Any authenticated user can access page shells and some store-scoped read views outside their business role, increasing unnecessary data exposure.
+- **Minimum actionable fix**:
+  - Add role gates per UI page and read partial endpoint (or route through service methods that enforce role checks).
+
+3. **Severity: Medium**
+- **Title**: `area_type` contract mismatch across README/API/schema
 - **Conclusion**: Fail
-- **Evidence**: `fullstack/backend/src/routes/table_routes.py:12`, `fullstack/backend/src/services/table_service.py:103`, `fullstack/backend/migrations/001_initial_schema.sql:249`, `README.md:25`
-- **Impact**: Hosts cannot use table workflows on a fresh install unless service tables are pre-created out-of-band; this breaks end-to-end operational readiness.
-- **Minimum actionable fix**: Add admin API/UI (or documented seed migration) to create/manage `service_tables` (`table_code`, `area_type`, `store_id`) and include this in setup docs.
+- **Evidence**: `README.md:30`, `fullstack/backend/src/routes/admin_routes.py:154`, `fullstack/backend/migrations/001_initial_schema.sql:253`, `fullstack/backend/src/enums/area_type.py:4`
+- **Impact**: API/docs advertise `processing_station` but DB constraint rejects it, causing operator/admin setup failures and inconsistent behavior.
+- **Minimum actionable fix**:
+  - Align schema, enum, route validation, and docs to one canonical set of `area_type` values.
 
-### [High] Function-level authorization gap: quarantine resolution not role-gated
+4. **Severity: Medium**
+- **Title**: CSV upload validation is only extension/MIME + parser-based, not robust file-type verification
 - **Conclusion**: Partial Fail
-- **Evidence**: `fullstack/backend/src/routes/qc_routes.py:70`, `fullstack/backend/src/services/qc_service.py:265`, `fullstack/backend/src/services/qc_service.py:295`, `fullstack/backend/src/services/qc_service.py:304`
-- **Impact**: Any authenticated same-store user can resolve quarantine (return/scrap) unless using concession path; this can enable unauthorized inventory disposition.
-- **Minimum actionable fix**: Enforce explicit resolver roles (e.g., QC inspector/supervisor/admin) for all quarantine dispositions, not only concession sign-off.
+- **Evidence**: `fullstack/backend/src/routes/member_routes.py:184`, `fullstack/backend/src/routes/member_routes.py:186`, `fullstack/backend/src/services/member_service.py:274`, `fullstack/backend/src/services/member_service.py:278`
+- **Impact**: Client-controlled MIME/filename checks are spoofable; malformed non-CSV payloads may still reach parser path before rejection.
+- **Minimum actionable fix**:
+  - Add stricter sniffing/validation (byte-level heuristics + strict CSV dialect checks), and document the exact acceptance policy.
 
-### [Medium] Pricing eligibility window support exists in engine but not exposed in admin create-rule API
-- **Conclusion**: Partial Fail
-- **Evidence**: `fullstack/backend/src/services/pricing_service.py:41`, `fullstack/backend/src/services/pricing_service.py:130`, `fullstack/backend/src/routes/admin_routes.py:84`, `README.md:29`
-- **Impact**: Prompt-required eligibility windows (MM/DD/YYYY + 12-hour) are not practically configurable through documented administrative flow.
-- **Minimum actionable fix**: Accept/validate `eligibility_start_local` and `eligibility_end_local` in admin pricing-rule API and document usage examples.
+### 5.3 Low
 
-### [Medium] Notification Center UI does not provide one-tap dial action
+5. **Severity: Low**
+- **Title**: Partial-route auth tests do not cover cross-store leakage scenarios
 - **Conclusion**: Partial Fail
-- **Evidence**: `fullstack/backend/templates/notifications/index.html:6`, `fullstack/backend/templates/notifications/index.html:54`, `fullstack/backend/templates/tickets/index.html:157`, `fullstack/backend/src/routes/partials_routes.py:166`
-- **Impact**: One-tap dialing exists, but outside Notification Center; prompt positions dialing as part of Notification Center workflow.
-- **Minimum actionable fix**: Add dial action in Notification Center ticket/history/retry views (reusing audited dial endpoint).
-
-### [Medium] Ticket creation success UI omits promotional tier/bonus explanation
-- **Conclusion**: Partial Fail
-- **Evidence**: `fullstack/backend/templates/tickets/index.html:136`, `fullstack/backend/src/services/ticket_service.py:180`
-- **Impact**: Prompt asks instant estimated payout plus promotional tier visibility; UI shows payout/cap only, reducing operator/customer transparency.
-- **Minimum actionable fix**: Surface `estimated_bonus_pct` and matched tier rule context in create-ticket response/UI.
+- **Evidence**: `API_tests/test_routes.py:955`, `API_tests/test_routes.py:958`, `API_tests/test_routes.py:970`, `API_tests/test_routes.py:974`, `API_tests/test_routes.py:978`
+- **Impact**: A serious authz regression in HTMX read paths could pass CI unnoticed.
+- **Minimum actionable fix**:
+  - Add partial-route cross-store tests with admin vs store-pinned vs store-null users.
 
 ## 6. Security Review Summary
 
-- **Authentication entry points**: **Partial Pass**
-  - Login/session/cookie signing/CSRF are implemented (`fullstack/backend/src/routes/auth_routes.py:74`, `fullstack/backend/src/security/session_cookie.py:91`, `fullstack/backend/src/routes/helpers.py:240`).
-  - Bootstrap is intentionally unauthenticated but lock-once guarded (`fullstack/backend/src/routes/auth_routes.py:45`, `fullstack/backend/src/services/auth_service.py:123`).
-
-- **Route-level authorization**: **Pass**
-  - API routes are consistently behind `@require_auth` except intended bootstrap/login (`fullstack/backend/src/routes/*_routes.py`; e.g., `fullstack/backend/src/routes/ticket_routes.py:13`, `fullstack/backend/src/routes/qc_routes.py:13`).
-
-- **Object-level authorization**: **Pass**
-  - Widespread store-boundary enforcement via `enforce_store_access` in ticket/QC/table/notification/export/schedule services (`fullstack/backend/src/services/_authz.py:22`).
-
-- **Function-level authorization**: **Partial Pass**
-  - Strong role checks in many sensitive flows (variance/refund/export/schedule approvals) but quarantine resolution lacks broad role gating (`fullstack/backend/src/services/qc_service.py:265`).
-
-- **Tenant/user data isolation**: **Pass**
-  - Cross-store guards and tests are present (`fullstack/backend/src/services/ticket_service.py:754`, `API_tests/test_routes.py:1215`).
-
-- **Admin/internal/debug endpoint protection**: **Pass**
-  - Admin routes require auth + admin-role checks (`fullstack/backend/src/routes/admin_routes.py:16`, `fullstack/backend/src/routes/admin_routes.py:23`).
-  - No obvious open debug endpoints found in reviewed scope.
+- **Authentication entry points: Pass**
+  - Evidence: signed session cookie and validation in `fullstack/backend/src/routes/helpers.py:257`, `fullstack/backend/src/security/session_cookie.py:91`, auth login/session creation in `fullstack/backend/src/services/auth_service.py:221`.
+- **Route-level authorization: Partial Pass**
+  - Evidence: `@require_auth` broadly applied (`fullstack/backend/src/routes/ticket_routes.py:12`, `fullstack/backend/src/routes/export_routes.py:12`), but some UI/partials lack role constraints (`fullstack/backend/src/routes/ui_routes.py:42`, `fullstack/backend/src/routes/partials_routes.py:98`).
+- **Object-level authorization: Partial Pass**
+  - Evidence: strong service checks via `enforce_store_access` (`fullstack/backend/src/services/_authz.py:22`, used widely in services), but direct repository reads in partial routes bypass service-level object checks (`fullstack/backend/src/routes/partials_routes.py:101`, `fullstack/backend/src/routes/partials_routes.py:367`, `fullstack/backend/src/routes/partials_routes.py:424`, `fullstack/backend/src/routes/partials_routes.py:500`).
+- **Function-level authorization: Partial Pass**
+  - Evidence: role gates in sensitive services (`fullstack/backend/src/services/ticket_service.py:422`, `fullstack/backend/src/services/export_service.py:153`, `fullstack/backend/src/services/schedule_service.py:116`, `fullstack/backend/src/services/price_override_service.py:140`); weaker read-side UI/partial role boundaries.
+- **Tenant / user data isolation: Partial Pass**
+  - Evidence: core isolation helper and API cross-store tests (`fullstack/backend/src/services/_authz.py:22`, `API_tests/test_routes.py:1215`), but HTMX partial store-resolution bug remains (`fullstack/backend/src/routes/partials_routes.py:27`, `fullstack/backend/src/services/auth_service.py:201`).
+- **Admin / internal / debug protection: Pass**
+  - Evidence: admin-only checks on admin routes (`fullstack/backend/src/routes/admin_routes.py:23`, `fullstack/backend/src/routes/admin_routes.py:77`, `API_tests/test_routes.py:643`); no exposed debug/internal route set found in reviewed code.
 
 ## 7. Tests and Logging Review
 
-- **Unit tests**: **Pass (static presence/coverage breadth)**
-  - Extensive service/security/hardening/schema tests across core modules.
-  - Evidence: `unit_tests/test_services.py`, `unit_tests/test_security.py:291`, `unit_tests/test_hardening.py:223`.
-
-- **API/integration tests**: **Pass (static presence)**
-  - AuthN/AuthZ, cross-store, unauthenticated paths, and key routes covered.
-  - Evidence: `API_tests/test_routes.py:754`, `API_tests/test_routes.py:810`, `API_tests/test_routes.py:1215`.
-
-- **Logging categories/observability**: **Pass**
-  - Structured app logging + rotating file handler + audit service with tamper chain.
-  - Evidence: `fullstack/backend/app.py:11`, `fullstack/backend/app.py:28`, `fullstack/backend/src/services/audit_service.py:1`.
-
-- **Sensitive data leakage risk in logs/responses**: **Partial Pass**
-  - Strong masking/serialization redaction and encrypted field stripping (`fullstack/backend/src/routes/helpers.py:77`).
-  - Dial path intentionally decrypts for action but avoids logging plaintext (`fullstack/backend/src/services/ticket_service.py:744`).
-  - Residual risk is low but runtime log-content review still **Manual Verification Required**.
+- **Unit tests: Pass (static presence and breadth)**
+  - Evidence: broad unit suite over schema/repos/services/security/hardening (`unit_tests/test_services.py:1`, `unit_tests/test_schema.py:45`, `unit_tests/test_security.py:1`, `unit_tests/test_hardening.py:1`).
+- **API / integration tests: Pass (with targeted gaps)**
+  - Evidence: auth, RBAC, TLS guard, cross-store API matrix, HTMX auth tests (`API_tests/test_routes.py:96`, `API_tests/test_routes.py:338`, `API_tests/test_routes.py:412`, `API_tests/test_routes.py:1154`, `API_tests/test_routes.py:955`).
+- **Logging categories / observability: Pass**
+  - Evidence: central app logging setup + rotating file fallback (`fullstack/backend/app.py:11`), audit trail service (`fullstack/backend/src/services/audit_service.py:38`), immutable audit table triggers (`fullstack/backend/migrations/001_initial_schema.sql:405`).
+- **Sensitive-data leakage risk in logs/responses: Partial Pass**
+  - Evidence: serializer strips ciphertext/iv and secret fields (`fullstack/backend/src/routes/helpers.py:77`), test guard (`API_tests/test_routes.py:254`), but some error logging includes raw exception strings (acceptable but watch operational verbosity) (`fullstack/backend/src/security/crypto.py:177`).
 
 ## 8. Test Coverage Assessment (Static Audit)
 
 ### 8.1 Test Overview
-- **Unit tests exist**: Yes (`unit_tests/*`)
-- **API/integration tests exist**: Yes (`API_tests/*`)
-- **Framework(s)**: `pytest` (`fullstack/backend/requirements.txt:3`)
-- **Test entry points**: `run_tests.sh` and direct pytest command in README (`run_tests.sh:8`, `README.md:44`, `README.md:55`)
-- **Doc test commands provided**: Yes (`README.md:41`)
+- **Unit tests exist**: Yes (`unit_tests/*` with pytest).
+- **API tests exist**: Yes (`API_tests/test_routes.py`, `API_tests/test_health.py`).
+- **Framework**: `pytest` (`API_tests/test_routes.py:9`, `unit_tests/test_services.py:9`).
+- **Test entry points documented**: Yes (`README.md:42`, `README.md:56`, `run_tests.sh:8`).
 
 ### 8.2 Coverage Mapping Table
 
 | Requirement / Risk Point | Mapped Test Case(s) | Key Assertion / Fixture / Mock | Coverage Assessment | Gap | Minimum Test Addition |
 |---|---|---|---|---|---|
-| Session + CSRF enforcement | `unit_tests/test_security.py:291`, `unit_tests/test_security.py:314` | 403 on missing/wrong CSRF (`unit_tests/test_security.py:300`, `unit_tests/test_security.py:320`) | sufficient | None material | Keep regression tests on new mutating routes |
-| 401 unauthenticated on protected APIs | `API_tests/test_routes.py:754`, `API_tests/test_routes.py:785`, `API_tests/test_routes.py:915` | Explicit 401 assertions | sufficient | None material | Add a centralized parametric 401 sweep |
-| Cross-store ticket/notification/QC isolation | `API_tests/test_routes.py:1215`, `API_tests/test_routes.py:1246`, `API_tests/test_routes.py:1277` | 403 for foreign-store actions | sufficient | None material | Extend to exports/schedules object reads |
-| Variance dual-control and password | `unit_tests/test_services.py:341`, `unit_tests/test_services.py:1539` | Wrong password rejected; flow enforced | sufficient | None material | Add API-level replay race scenario |
-| Refund dual-control and self-approval | `unit_tests/test_services.py:451`, `unit_tests/test_services.py:515` | Initiator cannot approve | sufficient | None material | Add API test for concurrent approvals |
-| Export approval/execution idempotency | `unit_tests/test_hardening.py:268`, `unit_tests/test_hardening.py:294`, `API_tests/test_routes.py:837` | Duplicate execute/approve rejected | sufficient | None material | Add store-isolation tests for export list/execute |
-| Schedule approval password + role | `API_tests/test_routes.py:869`, `unit_tests/test_services.py:1617` | Wrong role/wrong password rejected | basically covered | Limited API depth on race/idempotency | Add API concurrency/idempotency checks |
-| QC sampling/escalation basics | `unit_tests/test_services.py:811`, `unit_tests/test_services.py:816` | Sample min and percent behavior asserted | basically covered | No explicit API-level day-escalation scenario | Add tests for >=2 nonconformance/day escalation end-to-end |
-| Quarantine concession dual-control | `unit_tests/test_services.py:866`, `unit_tests/test_services.py:923`, `unit_tests/test_services.py:2701` | Supervisor/sign-off/cross-store checks | basically covered | Non-concession role-gating for resolve not asserted | Add negative tests for unauthorized roles resolving return/scrap |
-| Pricing windows date/time parsing | `unit_tests/test_services.py:2196`, `unit_tests/test_services.py:2971` | MM/DD/YYYY + 12-hour AM/PM accepted/rejected | sufficient (service layer) | No API coverage for configuring window fields | Add API tests once route accepts eligibility fields |
-| Traceability recall generation | `unit_tests/test_services.py:1332`, `unit_tests/test_services.py:1983` | Checks count + cross-store constraints | insufficient | No assertion for actionable recall-list output/artifact | Add tests requiring returned recall items and persisted output path/content |
-| Table/room workflow | `unit_tests/test_services.py:995`, `unit_tests/test_services.py:1044`, `unit_tests/test_services.py:2052` | Open/merge/timeline and cross-store checks | basically covered | No 0→1 provisioning test for service tables | Add API test for admin creating service tables before host workflows |
+| Bootstrap 0→1 flow | `API_tests/test_routes.py:579` | Full admin→store→pricing→user→ticket chain | sufficient | none major | keep regression test |
+| Pricing caps + variance threshold (max($5,5%)) | `unit_tests/test_services.py:215`, `unit_tests/test_services.py:244`, `unit_tests/test_services.py:249` | cap applied and threshold semantics asserted | sufficient | none major | add boundary exactly equal to threshold |
+| Dual-control variance approval + password | `API_tests/test_routes.py:753`, `unit_tests/test_services.py:367` | wrong password forbidden, supervisor approval path | basically covered | more race cases at API layer | add concurrent approve API test |
+| Dual-control refund/export/schedule/price-override authz | `API_tests/test_routes.py:784`, `API_tests/test_routes.py:809`, `API_tests/test_routes.py:854`, `API_tests/test_routes.py:1033` | unauth/unauthorized/stale/duplicate cases | basically covered | limited mixed-role edge matrix | add table-driven matrix per role/action |
+| CSRF enforcement | `unit_tests/test_security.py:291` | POST blocked without token; valid token path | sufficient | none major | add CSRF test for HTMX partial POSTs |
+| Session cookie tamper rejection | `API_tests/test_routes.py:385`, `unit_tests/test_services.py:3071` | tampered/forged cookie returns 401/None | sufficient | none major | keep |
+| Cross-store API isolation | `API_tests/test_routes.py:1154` | store A actor blocked from store B resources | sufficient | does not include HTMX partial reads | add cross-store tests for `/ui/partials/*` |
+| HTMX partial auth | `API_tests/test_routes.py:955` | only unauthenticated 401 and basic authenticated read | insufficient | missing store/role isolation checks | add authz matrix for partial endpoints |
+| Sensitive fields not leaked in API responses | `API_tests/test_routes.py:254` | no ciphertext/iv in response keys | basically covered | no check for address fields | extend to store payloads if added |
+| CSV import validation + hash | `unit_tests/test_services.py:1274`, `unit_tests/test_services.py:1287` | valid import and row-level validation errors | insufficient | no tests for MIME spoof, size limit, malformed binary payload | add API tests for `member_routes.import_csv` with file fixtures |
 
 ### 8.3 Security Coverage Audit
-- **Authentication**: **Covered well** (login/session/CSRF tests exist).
-- **Route authorization**: **Covered well** for many protected routes and 401/403 paths.
-- **Object-level authorization**: **Covered well** for core cross-store scenarios.
-- **Tenant/data isolation**: **Covered well but not exhaustive** across every endpoint.
-- **Admin/internal protection**: **Partially covered** (admin behavior tested indirectly; explicit endpoint matrix could be stronger).
-- **Severe undetected-defect risk still possible**: yes, particularly around quarantine non-concession role authorization and recall output semantics where current tests do not enforce prompt-level outcomes.
+- **Authentication**: **Pass** (login, cookie tamper, session behavior tests present).
+- **Route authorization**: **Partial Pass** (many role checks tested; read-side UI/partials under-tested).
+- **Object-level authorization**: **Partial Pass** (API matrix exists, HTMX read paths not covered).
+- **Tenant/data isolation**: **Partial Pass** (service/API strong coverage, but severe partial-route defect could remain undetected).
+- **Admin/internal protection**: **Pass** (admin route protections tested; no debug/internal endpoints found).
 
 ### 8.4 Final Coverage Judgment
 - **Partial Pass**
-- Major security and business-critical paths have meaningful static test coverage.
-- However, uncovered/under-covered risks (recall output semantics, table provisioning workflow, quarantine resolver role boundary) mean severe prompt-fit defects could remain while tests still pass.
+- Major risks covered: core auth, CSRF, cookie tampering, many dual-control routes, cross-store API access.
+- Major uncovered risks: HTMX partial cross-store/role leakage and robust file-upload validation hardening. Severe defects in those areas could still pass current tests.
 
 ## 9. Final Notes
-- This audit is static-only and evidence-based; runtime claims were intentionally avoided.
-- The codebase is close to acceptance quality, but the High-severity gaps above should be resolved before claiming full prompt compliance.
+- This report is strictly static and evidence-based.
+- No runtime success claims are made.
+- The most urgent acceptance blocker-to-fix for moving from Partial Pass toward Pass is the HTMX partial authorization/store-context flaw, then schema/API contract alignment for service table area types.

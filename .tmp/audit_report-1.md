@@ -1,261 +1,219 @@
-# RentOps Delivery Acceptance & Project Architecture Audit (Static-Only)
+# ReclaimOps Static Delivery Acceptance & Architecture Audit
 
 ## 1. Verdict
 - Overall conclusion: **Partial Pass**
 
 ## 2. Scope and Static Verification Boundary
 - Reviewed:
-  - Backend Symfony code (`fullstack/backend/src`, `fullstack/backend/config`, migrations, tests)
-  - Frontend React code (`fullstack/frontend/src`, frontend tests)
-  - Delivery docs (`fullstack/README.md`, `docs/api-spec.md`)
-- Not reviewed in depth:
-  - Historical/deprecated top-level test folders (`API_tests`, `unit_tests`) as authoritative execution sources
-  - Runtime behavior, DB state evolution under real load, browser rendering behavior
+  - Documentation, startup/config/test instructions, and project layout (`README.md:1-237`, `run_tests.sh:1-14`, `fullstack/backend/app.py:114-227`).
+  - Flask entry points, blueprint registration, route-level auth, service-layer authorization, repositories, schema/migrations, templates, CSS, and static tests.
+  - Security-sensitive paths: auth/session/cookies/CSRF, dual-control approval flows, encryption/masking, audit logs, import/export validation.
+- Not reviewed:
+  - Runtime behavior in a live server, browser, Docker, external telephony integration, TLS handshake validity, performance, concurrency under load.
 - Intentionally not executed:
-  - Project startup, Docker, tests, external services (per audit constraints)
+  - Project startup, Docker, tests, external services (per static-only boundary).
 - Claims requiring manual verification:
-  - Real runtime concurrency behavior under contention
-  - Scheduler timing behavior in real deployment clocks/timezones
-  - Frontend visual quality/accessibility on actual devices and browsers
+  - Actual HTTPS/TLS deployment correctness and certificate trust chain.
+  - Real workstation one-tap dialing behavior.
+  - End-to-end UX speed/usability under real store workflows.
 
 ## 3. Repository / Requirement Mapping Summary
-- Prompt core goal mapped: offline booking + billing + finance consistency across Administrator, Property Manager, Tenant, Finance Clerk.
-- Core flows mapped: local auth/JWT/refresh/session limits, hold+confirm booking, cancellation/no-show penalties, billing/payment/refund/ledger/reconciliation, notifications with DND/preferences, terminal transfer management, backup/restore + encryption.
-- Main implementation areas reviewed:
-  - Security/auth: `security.yaml`, `ApiTokenAuthenticator`, `JwtAuthenticator`, `AuthService`, `JwtTokenManager`
-  - Business core: booking/hold/billing/payment/refund/reconciliation/terminal/notification services
-  - APIs and routing: controllers + `/api/v1` prefix
-  - Data model: entities + migrations
-  - Test posture: PHPUnit unit/integration + frontend Vitest adapter tests
+- Prompt core goal mapped: offline in-store buyback suite with ticket intake, payout engine, QC/variance dual-control, table/room workflow, offline notifications, member lifecycle CSV, reporting/export approvals, traceability/recalls, and strong offline security controls.
+- Main implementation areas mapped:
+  - API/UI composition and boot (`fullstack/backend/app.py:183-212`, `fullstack/backend/templates/*.html`).
+  - Domain logic (`fullstack/backend/src/services/*.py`).
+  - Persistence and constraints (`fullstack/backend/src/repositories/*.py`, `fullstack/backend/migrations/001_initial_schema.sql`).
+  - Security and auditing (`fullstack/backend/src/routes/helpers.py:240-296`, `fullstack/backend/src/security/*.py`, `fullstack/backend/src/services/audit_service.py:38-73`).
+  - Test corpus (`unit_tests/*.py`, `API_tests/*.py`).
 
 ## 4. Section-by-section Review
 
-### 4.1 Hard Gates
-
-#### 4.1.1 Documentation and static verifiability
-- Conclusion: **Partial Pass**
-- Rationale: Delivery has clear startup/test/API docs and route prefix consistency, but run guidance is Docker-centric and static test reliability has notable weaknesses.
-- Evidence:
-  - `fullstack/README.md:10-14`, `fullstack/README.md:76-87`, `docs/api-spec.md:3`, `fullstack/backend/config/routes/api.yaml:1-6`
-  - Test quality concerns: `fullstack/backend/tests/Unit/Service/AuthSessionHardeningTest.php:260-277`, `fullstack/backend/tests/Integration/BackupRestoreIntegrationTest.php:153,169,187`
-
-#### 4.1.2 Material deviation from Prompt
+### 1. Hard Gates
+#### 1.1 Documentation and static verifiability
 - Conclusion: **Pass**
-- Rationale: Repository is centered on offline booking/billing/finance workflows; no major unrelated domain replacement observed.
-- Evidence:
-  - Booking/hold: `fullstack/backend/src/Service/BookingHoldService.php:47-162`, `:164-277`
-  - Billing/payments/refunds/ledger/reconciliation: `fullstack/backend/src/Service/BillingService.php:47-140`, `fullstack/backend/src/Service/PaymentService.php:159-309`, `fullstack/backend/src/Service/RefundService.php:41-147`, `fullstack/backend/src/Service/ReconciliationService.php:45-95`
-  - Frontend role flows: `fullstack/frontend/src/app/App.tsx:1-177`
+- Rationale: Startup/config/test instructions and project structure are documented and statically consistent with code wiring.
+- Evidence: `README.md:7-79`, `README.md:138-181`, `fullstack/backend/app.py:187-212`, `run_tests.sh:1-10`
+- Manual verification note: Runtime setup success still requires manual execution.
 
-### 4.2 Delivery Completeness
-
-#### 4.2.1 Coverage of explicitly stated core requirements
+#### 1.2 Material deviation from Prompt
 - Conclusion: **Partial Pass**
-- Rationale: Most core requirements are implemented statically, but one explicit security/behavior requirement is not strictly enforced in edge conditions (device-session cap), and some requirements are only partially evidenced statically.
-- Evidence:
-  - Auth model + TTLs: `fullstack/backend/src/Security/JwtTokenManager.php:25-28`, `:35-49`
-  - Session cap logic (edge defect): `fullstack/backend/src/Service/AuthService.php:51-60`
-  - Idempotency 24h: `fullstack/backend/src/Service/IdempotencyService.php:27-35`
-  - Hold duration default 10 min + throttle default 30/min + lock: `fullstack/backend/src/Service/BookingHoldService.php:82-90`, `:91-122`
-  - Cancellation/no-show rules: `fullstack/backend/src/Service/BookingService.php:146-152`, `:221-241`
-  - Recurring billing schedule fields: `fullstack/backend/src/Service/BillingService.php:365-375`
-  - In-app notifications + DND defaults: `fullstack/backend/src/Service/NotificationService.php:50-57`, `fullstack/backend/src/Entity/NotificationPreference.php:29-33`
-  - Terminal transfers pause/resume/checksum: `fullstack/backend/src/Service/TerminalService.php:300-327`, `:346-369`
+- Rationale: Core modules exist, but delivery materially deviates in UI architecture and workflow ergonomics from a strongly HTMX-driven, fast operational interface.
+- Evidence: `README.md:3`, `fullstack/backend/templates/tickets/index.html:99`, `fullstack/backend/templates/tables/index.html:56`, `fullstack/backend/templates/qc/index.html:98`, `fullstack/backend/templates/notifications/index.html:63`, `fullstack/backend/src/routes/ticket_routes.py:12-288`, `fullstack/backend/src/routes/table_routes.py:12-133`
+- Manual verification note: Usability impact in a real store setting is manual-verification-required.
 
-#### 4.2.2 End-to-end 0→1 deliverable vs partial demo
+### 2. Delivery Completeness
+#### 2.1 Coverage of explicit core requirements
+- Conclusion: **Partial Pass**
+- Rationale: Most core backend requirements are implemented (pricing caps/tiers, QC variance approval, table transitions/merge/transfer, notification logging/retries/templates, member lifecycle CSV, reports/exports approvals, traceability/recalls, dual-control and audits). Gaps remain in UX-fit and one-tap dialing semantics.
+- Evidence:
+  - Pricing/variance: `fullstack/backend/src/services/pricing_service.py:139-245`, `fullstack/backend/src/services/ticket_service.py:247-499`
+  - Table workflow: `fullstack/backend/src/services/table_service.py:28-347`
+  - Notifications: `fullstack/backend/src/services/notification_service.py:56-214`
+  - Members CSV: `fullstack/backend/src/services/member_service.py:270-462`, `fullstack/backend/src/routes/member_routes.py:177-205`
+  - Exports/reports approvals: `fullstack/backend/src/services/export_service.py:85-323`, `fullstack/backend/src/routes/export_routes.py:12-140`
+  - Traceability/recalls: `fullstack/backend/src/services/traceability_service.py:48-313`
+  - One-tap dial limitation: `fullstack/backend/templates/tickets/index.html:218-223`, `fullstack/backend/src/services/ticket_service.py:727-786`
+
+#### 2.2 End-to-end 0→1 deliverable vs partial demo
 - Conclusion: **Pass**
-- Rationale: Full-stack structure, migrations, services, controllers, docs, and test suites are present and integrated.
-- Evidence:
-  - Backend/Frontend manifests: `fullstack/backend/composer.json:1-43`, `fullstack/frontend/package.json:1-35`
-  - DB schema: `fullstack/backend/migrations/Version20240101000000.php:1-420`
-  - Integration tests present: `fullstack/backend/phpunit.xml:17-24`, `fullstack/backend/tests/Integration/FullFlowHttpTest.php:14-404`
+- Rationale: Full project structure, schema, routes/services, templates, and large test corpus are present; this is not a single-file demo.
+- Evidence: `README.md:50-79`, `fullstack/backend/migrations/001_initial_schema.sql:1-525`, `unit_tests/test_services.py:1-3152`, `API_tests/test_routes.py:1-682`
 
-### 4.3 Engineering and Architecture Quality
-
-#### 4.3.1 Engineering structure and module decomposition
+### 3. Engineering and Architecture Quality
+#### 3.1 Structure and module decomposition
 - Conclusion: **Pass**
-- Rationale: Service-oriented decomposition is coherent by domain; controllers are thin and delegate to services.
-- Evidence:
-  - Service decomposition examples: `fullstack/backend/src/Service/BookingService.php:25-450`, `BillingService.php:30-450`, `PaymentService.php:27-352`, `TerminalService.php:23-371`
-  - Controller thinness example: `fullstack/backend/src/Controller/BillController.php:29-132`
+- Rationale: Layered architecture is clear; responsibilities are reasonably separated into routes/services/repositories/models/security.
+- Evidence: `README.md:81-95`, `fullstack/backend/src/routes/helpers.py:109-231`, `fullstack/backend/src/services/*.py`, `fullstack/backend/src/repositories/*.py`
 
-#### 4.3.2 Maintainability/extensibility
+#### 3.2 Maintainability and extensibility
 - Conclusion: **Partial Pass**
-- Rationale: Most modules are extendable, but duplicated authentication enforcement paths increase complexity and drift risk.
-- Evidence:
-  - Duplicated auth layers: `fullstack/backend/src/Security/ApiTokenAuthenticator.php:21-25`, `fullstack/backend/src/Security/JwtAuthenticator.php:14-23`
-  - Controllers depend on request attribute set by listener path: `fullstack/backend/src/Controller/AuthController.php:109-118`
+- Rationale: Backend is maintainable and extensible; however, frontend operational flow relies on manual ID entry and ad-hoc `fetch` scripts across templates, reducing maintainability and workflow scalability.
+- Evidence: `fullstack/backend/templates/tickets/index.html:38-49`, `fullstack/backend/templates/tables/index.html:22-43`, `fullstack/backend/templates/qc/index.html:11-17`, `fullstack/backend/templates/*: fetch(...) patterns`
 
-### 4.4 Engineering Details and Professionalism
-
-#### 4.4.1 Error handling, logging, validation, API shape
-- Conclusion: **Partial Pass**
-- Rationale: Error handling and validation are generally structured, with redaction and metric hooks; however, test reliability and one strict auth/session requirement are weak points.
-- Evidence:
-  - Exception mapping + redaction: `fullstack/backend/src/Security/ExceptionListener.php:22-39`, `:62-73`, `:84-91`
-  - Validation examples: `fullstack/backend/src/Controller/AuthController.php:35-37`, `fullstack/backend/src/Service/PaymentService.php:49-55`
-  - Metrics collection: `fullstack/backend/src/Metrics/RequestMetricsListener.php:38-45`, `fullstack/backend/src/Service/MetricsService.php:19-24`
-
-#### 4.4.2 Product-grade vs demo-only
+### 4. Engineering Details and Professionalism
+#### 4.1 Error handling, logging, validation, API design
 - Conclusion: **Pass**
-- Rationale: Includes production-like concerns (RBAC, audit logs, backups, reconciliation, terminal transfer checksums, PDFs).
-- Evidence:
-  - Backup/restore encrypted flow: `fullstack/backend/src/Service/BackupService.php:384-401`, `:403-420`, `:242-277`
-  - Audit + RBAC: `fullstack/backend/src/Service/AuditService.php:61-79`, `fullstack/backend/src/Security/RbacEnforcer.php:30-70`
+- Rationale: Structured error responses, DB exception handlers, role/store checks, atomic transitions, and audit logging are consistently implemented.
+- Evidence: `fullstack/backend/src/routes/helpers.py:63-75`, `fullstack/backend/app.py:163-181`, `fullstack/backend/src/services/_tx.py:1-62`, `fullstack/backend/src/services/ticket_service.py:452-498`, `fullstack/backend/src/services/export_service.py:175-239`
 
-### 4.5 Prompt Understanding and Requirement Fit
+#### 4.2 Product-like organization vs demo level
+- Conclusion: **Pass**
+- Rationale: Includes migrations, scheduler reconciliation, security primitives, and broad domain coverage beyond demo scope.
+- Evidence: `fullstack/backend/src/database.py:49-84`, `fullstack/backend/src/scheduler.py:1-332`, `README.md:129-137`
 
-#### 4.5.1 Business-goal correctness and constraints
+### 5. Prompt Understanding and Requirement Fit
+#### 5.1 Business-goal and constraint fit
 - Conclusion: **Partial Pass**
-- Rationale: Requirement understanding is strong overall, but strict “max 5 active sessions” can be violated when pre-existing sessions already exceed cap because only one old session is revoked per login.
-- Evidence:
-  - Single-revoke logic: `fullstack/backend/src/Service/AuthService.php:53-60`
-  - Cap value clamp: `fullstack/backend/src/Service/AuthService.php:51`
-- Manual verification note: Runtime state with >5 pre-existing active sessions should be manually exercised.
+- Rationale: Business model understanding is generally strong, but prompt-specific constraints around HTMX-first UX and local-network TLS-by-default are only partially met.
+- Evidence: `README.md:3`, `README.md:160`, `fullstack/backend/app.py:86-91`, `fullstack/backend/app.py:270`, `fullstack/backend/templates/* fetch usage`
+- Manual verification note: Deployed TLS posture and operator UX fitness require manual validation.
 
-### 4.6 Aesthetics (frontend)
-
-#### 4.6.1 Visual/interaction quality fit
-- Conclusion: **Cannot Confirm Statistically**
-- Rationale: Static code shows basic interaction feedback and mobile-intent layout patterns, but final visual quality and accessibility fit require real rendering and device checks.
-- Evidence:
-  - Interaction elements present: `fullstack/frontend/src/features/bookings/CreateBookingPage.tsx:126-165`, `fullstack/frontend/src/features/notifications/NotificationCenterPage.tsx:42-63`
-  - Responsive-ish layout patterns: `fullstack/frontend/src/features/inventory/InventoryDetailPage.tsx:50-63`, `fullstack/frontend/src/features/terminals/TerminalListPage.tsx:223-266`
-- Manual verification note: Browser/device review required (desktop + mobile + accessibility tooling).
+### 6. Aesthetics (frontend/full-stack)
+#### 6.1 Visual/interaction quality fit
+- Conclusion: **Partial Pass**
+- Rationale: UI is coherent, readable, and has basic interaction feedback, but remains highly utilitarian and workflow-heavy on manual IDs rather than operational dashboards/queues expected for intake-floor speed.
+- Evidence: `fullstack/backend/static/css/style.css:1-124`, `fullstack/backend/templates/tables/index.html:11-41`, `fullstack/backend/templates/tickets/index.html:40-47`
 
 ## 5. Issues / Suggestions (Severity-Rated)
 
-### Blocker / High
+### [High] 1) TLS is optional by default, conflicting with prompt’s local-network TLS requirement
+- Conclusion: **Fail against prompt security intent**
+- Evidence: `README.md:160`, `README.md:144-148`, `fullstack/backend/app.py:86-91`, `fullstack/backend/app.py:270`, `fullstack/backend/src/routes/auth_routes.py:15`
+- Impact: Deployments can run over plain HTTP with non-secure cookies unless operators explicitly harden configuration, risking credential/session exposure on local network.
+- Minimum actionable fix: Make TLS-first and `SECURE_COOKIES=true` the secure default in production profile and fail closed unless explicitly overridden for local dev-only mode.
 
-1) **Severity: High**
-- Title: Device-session cap can remain above 5 active sessions
-- Conclusion: **Fail** (explicit requirement not strictly enforced)
-- Evidence: `fullstack/backend/src/Service/AuthService.php:53-60`
-- Impact: If historical data or race conditions leave a user with >5 active sessions, login revokes only one and can keep account above cap, violating the “max 5 active devices” rule.
-- Minimum actionable fix: Revoke sessions in a loop (or bulk query) until active count is `< maxDevices` before creating a new session; add transactional enforcement.
+### [High] 2) UI is not materially HTMX-driven and lacks queue/board workflows required for fast form-based operations
+- Conclusion: **Fail/major deviation for architecture + operational UX fit**
+- Evidence: `fullstack/backend/templates/tickets/index.html:99-233`, `fullstack/backend/templates/qc/index.html:98-140`, `fullstack/backend/templates/tables/index.html:56-89`, `fullstack/backend/templates/notifications/index.html:63-93`, `fullstack/backend/src/routes/helpers.py:347-348`, `fullstack/backend/src/routes/table_routes.py:12-133`, `fullstack/backend/src/routes/ticket_routes.py:12-288`
+- Impact: Manual ID-driven operations increase operator friction/error risk and undercut prompt’s HTMX-driven, rapid in-store workflow expectation.
+- Minimum actionable fix: Add HTMX partial endpoints and UI components for ticket/session queues, searchable lists, state boards, and in-context actions without manual ID entry.
 
-2) **Severity: High**
-- Title: Critical integration backup test seeds domain-invalid status/type values
-- Conclusion: **Fail** (test correctness defect)
-- Evidence:
-  - Invalid seeded values: `fullstack/backend/tests/Integration/BackupRestoreIntegrationTest.php:153,169,187`
-  - Expected enum values: `fullstack/backend/src/Enum/BillType.php:9-12`, `PaymentStatus.php:9-12`, `RefundStatus.php:9-10`
-- Impact: Test can provide false confidence around backup/restore correctness while persisting states that do not match domain enums/API contracts.
-- Minimum actionable fix: Replace seeded values with enum-valid values (`initial|recurring|supplemental|penalty`, `pending|succeeded|failed|rejected`, `issued|rejected`) and assert restoration through domain reads, not only row counts.
+### [Medium] 3) “One-tap dialing” is implemented as plaintext number retrieval, not direct workstation dial action
+- Conclusion: **Partial requirement fit**
+- Evidence: `fullstack/backend/templates/tickets/index.html:218-223`, `fullstack/backend/src/services/ticket_service.py:735-786`
+- Impact: Staff still need a manual dialing step, reducing fidelity to the “one-tap dialing” workflow.
+- Minimum actionable fix: Provide explicit dial action integration (for example `tel:` intent/OS handler or a workstation dial bridge) while retaining audit logging.
 
-### Medium
-
-3) **Severity: Medium**
-- Title: Dual authentication layers increase drift and security-maintenance risk
-- Conclusion: **Partial Fail**
-- Evidence: `fullstack/backend/src/Security/ApiTokenAuthenticator.php:21-25`, `fullstack/backend/src/Security/JwtAuthenticator.php:14-23`
-- Impact: Two parallel auth paths can diverge over time, causing inconsistent behavior and harder auditing.
-- Minimum actionable fix: Consolidate to a single auth path (prefer firewall authenticator) and set authenticated user from the same source.
-
-4) **Severity: Medium**
-- Title: Security-critical coverage is uneven; several tests assert local replica logic instead of service behavior
-- Conclusion: **Partial Fail**
-- Evidence:
-  - Replica-style unit logic: `fullstack/backend/tests/Unit/Service/AuthSessionHardeningTest.php:260-277`
-  - Limited callback negative-path assertions: `fullstack/backend/tests/Integration/FullFlowHttpTest.php:353-364`
-- Impact: Severe defects (session cap edge cases, callback amount/currency mismatch handling, role/object checks in some finance paths) could survive test runs.
-- Minimum actionable fix: Add integration tests that hit real endpoints/services for these specific risks and remove/replace logic-replica tests.
-
-5) **Severity: Medium**
-- Title: Recurring billing scheduling evidence split across two models (cron-like provider vs interval scheduler)
-- Conclusion: **Partial Fail** (clarity/operability risk)
-- Evidence: `fullstack/backend/src/Scheduler/AppScheduleProvider.php:27`, `fullstack/backend/src/Service/SchedulerService.php:53-56`, `fullstack/backend/src/Service/BillingService.php:360-375`
-- Impact: Operational confusion about which scheduler contract is authoritative can cause misconfiguration.
-- Minimum actionable fix: Document one canonical scheduling mechanism and align provider/service contracts.
-
-### Low
-
-6) **Severity: Low**
-- Title: Frontend chunk-to-base64 conversion may be brittle for large chunk handling in some runtimes
-- Conclusion: **Partial Fail**
-- Evidence: `fullstack/frontend/src/features/terminals/TerminalListPage.tsx:135`
-- Impact: Potential stack/memory strain depending on browser/runtime behavior.
-- Minimum actionable fix: Convert chunk to base64 via streaming or FileReader-based path that avoids large spread arguments.
+### [Medium] 4) API-level test coverage is strong for baseline routes but thin for many sensitive authorization paths
+- Conclusion: **Insufficient risk coverage at API surface**
+- Evidence: `API_tests/test_routes.py:1-682` (few schedule/override/variance/refund/export negative auth route cases), `unit_tests/test_services.py:1-3152` (service-heavy coverage)
+- Impact: Route wiring/regression defects (401/403/object-boundary checks) can slip through even when service-layer tests pass.
+- Minimum actionable fix: Add API tests for sensitive endpoints with explicit 401/403/self-approval/cross-store scenarios and replay/conflict behavior.
 
 ## 6. Security Review Summary
 
 - Authentication entry points: **Pass**
-  - Evidence: `fullstack/backend/src/Controller/AuthController.php:24-63`, `fullstack/backend/src/Security/ApiTokenAuthenticator.php:57-101`
-  - Reasoning: Local username/password + JWT + refresh flow present; public route boundaries explicitly listed.
+  - Evidence: `fullstack/backend/src/routes/auth_routes.py:73-112`, `fullstack/backend/src/services/auth_service.py:221-322`, `fullstack/backend/src/security/session_cookie.py:1-110`
+  - Reasoning: bcrypt verification, signed nonce cookie, session validation, logout revoke, bootstrap lock.
 
-- Route-level authorization: **Partial Pass**
-  - Evidence: global auth enforcement in firewall `fullstack/backend/config/packages/security.yaml:8-13`; service RBAC checks e.g., `fullstack/backend/src/Service/ReconciliationService.php:47`, `TerminalService.php:82`, `BillingService.php:245`
-  - Reasoning: Auth is centralized, but route-level role attributes are not used; authorization discipline depends on service-level checks.
+- Route-level authorization: **Pass**
+  - Evidence: `fullstack/backend/src/routes/helpers.py:240-296` (global auth+CSRF), route files consistently using `@require_auth`.
+  - Reasoning: Protected routes require session and CSRF for mutating methods.
 
 - Object-level authorization: **Partial Pass**
-  - Evidence: tenant ownership checks in `BookingService.php:126-132`, `PaymentService.php:75-78`, `RefundService.php:158-163`, `BillingService.php:312-314`
-  - Reasoning: Multiple object checks exist; no exhaustive static proof for all paths.
+  - Evidence: `fullstack/backend/src/services/_authz.py:1-56`, pervasive `enforce_store_access` in services (e.g., `ticket_service.py:131-136`, `table_service.py:96-117`, `export_service.py:103-108`).
+  - Reasoning: Strong store scoping exists; still requires manual verification for complete cross-route object exposure behavior.
 
 - Function-level authorization: **Pass**
-  - Evidence: role-action matrix in `RbacEnforcer.php:30-70`, used by services/controllers broadly.
+  - Evidence: Role gates in services (`ticket_service.py:102-107`, `qc_service.py:115-117`, `export_service.py:97-101`, `schedule_service.py:116-117`, `price_override_service.py:80-83,140-143`).
+  - Reasoning: Sensitive actions are role-guarded and dual-control protected.
 
-- Tenant / user data isolation: **Pass**
-  - Evidence: org scoping in repositories/service calls, e.g., `UserService.php:72-75`, `BillingService.php:305-310`, `OrganizationScope.php:12-27`
+- Tenant / user data isolation: **Partial Pass**
+  - Evidence: `session_store_id` pinning (`helpers.py:308-329`), service store checks as above.
+  - Reasoning: Strong store-level controls; aggregate/reporting behavior across route filters requires manual policy confirmation.
 
-- Admin / internal / debug protection: **Partial Pass**
-  - Evidence: metrics/audit/backups require privileged RBAC (`MetricsController.php:27-29`, `AuditService.php:63`, `BackupService.php:83`, `:159`, `:197`, `:226`)
-  - Reasoning: protection exists; maintainability risk remains from dual auth pathways.
+- Admin / internal / debug endpoint protection: **Pass**
+  - Evidence: admin routes use `@require_auth` + admin check (`admin_routes.py:15-24`, `55-60`, `69-78`); bootstrap intentionally unauthenticated but one-time locked (`auth_routes.py:44-71`, `auth_service.py:123-141`).
+  - Reasoning: No exposed debug endpoints found; health endpoint is public and non-sensitive (`app.py:183-185`).
 
 ## 7. Tests and Logging Review
 
-- Unit tests: **Partial Pass**
-  - Evidence: suite configured `fullstack/backend/phpunit.xml:17-24`; however some tests are logic replicas `AuthSessionHardeningTest.php:260-277`.
+- Unit tests: **Pass**
+  - Evidence: `unit_tests/test_services.py:1-3152`, `unit_tests/test_security.py:1-342`, `unit_tests/test_hardening.py:1-461`, `unit_tests/test_schema.py:1-421`.
+  - Rationale: Large breadth including business logic, security primitives, hardening/idempotency.
 
 - API / integration tests: **Partial Pass**
-  - Evidence: `fullstack/backend/tests/Integration/HttpApiTest.php`, `FullFlowHttpTest.php`, `BackupRestoreIntegrationTest.php`; but backup integration fixture uses domain-invalid enums (`BackupRestoreIntegrationTest.php:153,169,187`).
+  - Evidence: `API_tests/test_routes.py:1-682`, `API_tests/test_health.py:1-13`.
+  - Rationale: Baseline route contract/401 checks exist, but sensitive-path authorization matrix is incomplete.
 
 - Logging categories / observability: **Pass**
-  - Evidence: scheduler logs `SchedulerService.php:112,121`; exception logging/redaction `ExceptionListener.php:62-67`; metrics summary `MetricsCollector.php:72-85`.
+  - Evidence: centralized logger setup (`app.py:11-49`), audit logs for sensitive actions across services.
+  - Rationale: Structured categories and operational sweep logging present.
 
 - Sensitive-data leakage risk in logs / responses: **Partial Pass**
-  - Evidence: exception redaction `ExceptionListener.php:84-91`; audit serialization masks object_id in API `AuditLog.php:81-94`; storage still intentionally keeps full IDs for forensics `AuditService.php:17-19`.
-  - Note: Manual policy confirmation needed on whether at-rest full IDs in audit DB are acceptable against prompt’s masking expectation.
+  - Evidence: serialization redaction/masking (`helpers.py:77-106`), encrypted fields omitted in exports (`export_service.py:35-47`), generic DB error responses (`app.py:163-181`).
+  - Rationale: Good controls exist; authorized dial endpoint intentionally returns plaintext phone (`ticket_service.py:782-786`) and requires policy-aware manual verification.
 
 ## 8. Test Coverage Assessment (Static Audit)
 
 ### 8.1 Test Overview
-- Unit tests exist: PHPUnit `unit` suite at `backend/tests/Unit`.
-  - Evidence: `fullstack/backend/phpunit.xml:18-20`
-- API/integration tests exist: PHPUnit `integration` suite at `backend/tests/Integration`.
-  - Evidence: `fullstack/backend/phpunit.xml:21-23`
-- Frontend tests exist: Vitest adapter/API tests.
-  - Evidence: `fullstack/frontend/package.json:13`, `fullstack/frontend/src/api/__tests__/bookings.test.ts:64-184`
-- Test commands documented.
-  - Evidence: `fullstack/README.md:76-87`
+- Unit tests exist: **Yes** (`unit_tests/*.py`; `wc -l` shows large suite).
+- API/integration tests exist: **Yes** (`API_tests/test_routes.py`, `API_tests/test_health.py`).
+- Framework: **pytest** (test naming + docs command).
+- Test entry points:
+  - `./run_tests.sh` (`run_tests.sh:8-9`)
+  - local pytest command in docs (`README.md:43-48`)
+- Documentation provides test commands: **Yes** (`README.md:33-48`).
 
 ### 8.2 Coverage Mapping Table
 
 | Requirement / Risk Point | Mapped Test Case(s) | Key Assertion / Fixture / Mock | Coverage Assessment | Gap | Minimum Test Addition |
 |---|---|---|---|---|---|
-| Unauthenticated 401 on protected APIs | `fullstack/backend/tests/Integration/HttpApiTest.php:19-27`; `FullFlowHttpTest.php:128-132` | Status 401 assertions | sufficient | None material | Keep |
-| Public route accessibility (`/health`, `/bootstrap`, `/auth/login`, `/auth/refresh`, `/payments/callback`) | `HttpApiTest.php:41-68`; `FirewallAndCoverageTest.php:84-99,152-162` | Public-route allow assertions | basically covered | Mostly auth-boundary only | Add integration checks for all public routes with method/edge variants |
-| Route RBAC (tenant blocked from privileged operations) | `FullFlowHttpTest.php:166-192` | 403 assertions for audit/settings/inventory | basically covered | Narrow set of privileged endpoints | Add 403 tests for metrics/backups/reconciliation export |
-| Object-level isolation (tenant cannot read another tenant’s booking) | `FullFlowHttpTest.php:198-236` | Cross-tenant booking GET => 403 | basically covered | Only bookings path exercised | Add bill/payment/refund cross-tenant object tests |
-| Hold idempotency (duplicate request key) | `FullFlowHttpTest.php:284-303` | second hold => 409 | sufficient | None material | Keep |
-| Capacity/concurrency prevention | `FullFlowHttpTest.php:309-347` | third hold => 409 at capacity | basically covered | Not true parallel contention test | Add concurrent request harness hitting same slot |
-| Payment callback signature negative path | `FullFlowHttpTest.php:353-364` | invalid signature not 200 | insufficient | No strict assertions for amount/currency mismatch/idempotent terminal replay | Add callback tests for amount mismatch, currency mismatch, replay idempotency |
-| Device session cap=5 and forced logout on password change | No direct integration proof; only logic replica `AuthSessionHardeningTest.php:260-277` | direct `min()` assertions, not service call | missing | Critical auth requirement insufficiently tested | Add integration tests: create 6+ sessions, verify cap and forced revocation on password change |
-| Backup/restore integrity and finance consistency | `BackupRestoreIntegrationTest.php:230-240` | row-count checks | insufficient | fixture uses invalid domain status/type literals | Fix fixture values and assert restored data through domain enum parsing + FK validation outputs |
-| Frontend booking UX (real-time availability + hold timer + policy display) | No rendered component/integration tests; adapter tests only (`availability.test.ts`, `bookings.test.ts`) | mocked API assertions | insufficient | UI behavior can regress without failing tests | Add React component tests for CreateBookingPage timer/policy/availability states |
+| Auth required (401) | `API_tests/test_routes.py:107-110` | unauthenticated POST to `/api/tickets` returns 401 | sufficient | none | none |
+| CSRF enforcement on mutating routes | `unit_tests/test_security.py:291-322` | missing/wrong token rejected; valid token passes | sufficient | none | none |
+| Signed cookie tamper rejection | `API_tests/test_routes.py:385-404`, `unit_tests/test_services.py:3050-3092` | tampered/forged cookie rejected | sufficient | none | none |
+| Ticket intake + payout creation flow | `API_tests/test_routes.py:123-136` | status `intake_open`, payout > 0 | basically covered | no deep boundary cases at API layer | add API boundary tests for max cap/per-lb cap combinations |
+| QC variance dual-control flow | primarily service-level in `unit_tests/test_services.py` (variance tests), minimal API route checks | service asserts pending/approval transitions | basically covered | limited API-level 401/403/object-scope checks | add API tests for `/confirm-variance`, `/variance/{id}/approve|reject` unauthorized and cross-store cases |
+| Refund dual-control flow | service-level coverage in `unit_tests/test_services.py` (refund approval/reject) | approval requires password in service | basically covered | sparse API route-level negative tests | add API tests for `/refund/approve|reject` with wrong role, wrong password, self-approval |
+| Export request approval/execute replay safety | `API_tests/test_routes.py:643-667`, `unit_tests/test_hardening.py:268-313` | execute/approve idempotency and status gates | sufficient | API negative auth matrix incomplete | add API 403 tests for non-supervisor execute/approve paths |
+| Schedule adjustment dual-control | service tests in `unit_tests/test_services.py` + idempotency in `unit_tests/test_hardening.py:355+` | pending-list role restrictions/idempotency | basically covered | no API route tests for schedules | add API tests for `/api/schedules/*` 401/403/invalid transitions |
+| Store/object isolation | extensive service tests in `unit_tests/test_services.py` (cross-store table/qc/quarantine) | `PermissionError` on cross-store actions | basically covered | limited API-level cross-store coverage | add API tests that attempt cross-store object IDs for each sensitive endpoint |
+| TLS-first startup enforcement | `API_tests/test_routes.py:409-427` | startup refusal without certs when required | basically covered | runtime TLS handshake/cert validity untested statically | manual deployment verification with cert chain and secure cookie flags |
+| Sensitive field non-leakage in API responses | `API_tests/test_routes.py:250-263` | ciphertext/IV not returned | sufficient | no log-scrubbing assertions | add tests asserting logs/responses never emit plaintext phone except dial path |
 
 ### 8.3 Security Coverage Audit
-- Authentication: **Basically covered** (401 and bad-token checks exist), but strong cap/logout requirement lacks real integration tests.
-- Route authorization: **Basically covered** for a subset; severe defects in untested privileged routes could remain.
-- Object-level authorization: **Insufficient** beyond booking isolation; finance object isolation not clearly exercised.
-- Tenant/data isolation: **Basically covered** at booking path; broader entity isolation remains under-tested.
-- Admin/internal protection: **Insufficient** test coverage for metrics/backups operational endpoints.
+- Authentication: **Pass**
+  - Tests cover login success/failure, cookie tampering, CSRF.
+- Route authorization: **Partial Pass**
+  - Baseline 401/403 tests exist, but sensitive-route matrix is incomplete.
+- Object-level authorization: **Partial Pass**
+  - Strong service tests for cross-store checks; API-layer object-scope tests are comparatively thin.
+- Tenant/data isolation: **Partial Pass**
+  - Many store-boundary service tests exist; aggregate/report route behavior needs additional API assertions.
+- Admin/internal protection: **Basically covered**
+  - Admin route role checks tested (`API_tests/test_routes.py:623-635`), but broader admin endpoint matrix could be expanded.
 
 ### 8.4 Final Coverage Judgment
 - **Partial Pass**
-- Covered major risks: unauthenticated access handling, baseline RBAC, booking isolation path, idempotency, basic capacity guard.
-- Uncovered risks that could still allow severe defects despite passing tests: strict device-session cap enforcement, callback mismatch paths, broader object-level finance isolation, and backup/restore domain-validity assurance.
+- Covered major risks:
+  - Core auth/CSRF/cookie tamper controls.
+  - Key dual-control/idempotency mechanisms (especially at service layer).
+  - Schema integrity and many domain edge cases.
+- Uncovered risks that could still pass tests while severe defects remain:
+  - API wiring regressions for sensitive endpoints (401/403/object-level scope).
+  - Full route-level authorization matrix for schedule/override/variance/refund paths.
+  - Real deployed TLS and workstation dial integration behavior.
 
 ## 9. Final Notes
-- The delivery is substantively aligned with the RentOps prompt and has strong domain decomposition.
-- Main acceptance blockers are not absence of features but correctness hardening: strict session cap enforcement and higher-fidelity critical-path tests.
-- Runtime claims beyond static evidence (performance under load, rendering quality, clock-timing exactness) remain manual verification items.
+- This audit is static-only and evidence-based; runtime/functionality claims beyond static proof are explicitly marked for manual verification.
+- Strong backend architecture and security controls are present, but key prompt-fit gaps remain in secure-by-default transport posture and operator-facing HTMX workflow delivery.
