@@ -568,14 +568,16 @@ class TestTableActivityEventRepository:
 class TestNotificationTemplateRepository:
     def test_create_and_get_by_code(self, db_conn):
         repo = NotificationTemplateRepository(db_conn)
+        # Use a unique template_code to avoid colliding with the seeded
+        # "accepted" template from migration 004.
         template = NotificationTemplate(
-            template_code="accepted", name="Accepted",
-            body="Your items have been accepted.", event_type="accepted",
+            template_code="test_custom", name="Test Custom",
+            body="Your items have been accepted.", event_type="test_custom",
         )
         created = repo.create(template)
         db_conn.commit()
 
-        fetched = repo.get_by_code("accepted")
+        fetched = repo.get_by_code("test_custom")
         assert fetched is not None
         assert fetched.body == "Your items have been accepted."
 

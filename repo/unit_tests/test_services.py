@@ -3120,6 +3120,7 @@ class TestTLSFirstGuard:
     def test_production_without_tls_refuses(self, monkeypatch):
         from app import _enforce_tls_first
         monkeypatch.setenv("FLASK_ENV", "production")
+        monkeypatch.delenv("RECLAIM_OPS_DEV_MODE", raising=False)
         monkeypatch.delenv("TLS_CERT_PATH", raising=False)
         monkeypatch.delenv("TLS_KEY_PATH", raising=False)
         monkeypatch.setenv("SECURE_COOKIES", "false")
@@ -3132,6 +3133,7 @@ class TestTLSFirstGuard:
         key = tmp_path / "k.pem"
         cert.write_text("dummy")
         key.write_text("dummy")
+        monkeypatch.delenv("RECLAIM_OPS_DEV_MODE", raising=False)
         monkeypatch.setenv("RECLAIM_OPS_REQUIRE_TLS", "true")
         monkeypatch.setenv("TLS_CERT_PATH", str(cert))
         monkeypatch.setenv("TLS_KEY_PATH", str(key))

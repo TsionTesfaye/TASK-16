@@ -247,49 +247,56 @@ class TestPasswordHashing:
 
 # ── CSRF enforcement via API ──
 
+@pytest.fixture
+def csrf_app(tmp_path, monkeypatch):
+    """App fixture for CSRF tests — sets env vars that create_app needs."""
+    from app import create_app
+    monkeypatch.setenv("RECLAIM_OPS_DEV_MODE", "true")
+    monkeypatch.setenv("RECLAIM_OPS_REQUIRE_TLS", "false")
+    monkeypatch.setenv("SECURE_COOKIES", "false")
+    monkeypatch.setenv("SESSION_KEY_PATH", str(tmp_path / "session_key"))
+    import src.security.session_cookie as _sc
+    _sc._key_cache = None
+
+    db_path = str(tmp_path / "csrf_test.db")
+    application = create_app(db_path=db_path)
+    application.config["TESTING"] = True
+
+    with application.app_context():
+        from app import get_db
+        from flask import g
+        g.db_path = db_path
+        db = get_db()
+        from src.repositories import (
+            StoreRepository, SettingsRepository, UserRepository,
+        )
+        from src.models.store import Store
+        from src.models.user import User
+        from src.models.settings import Settings
+        from src.services.auth_service import AuthService
+        from src.services.audit_service import AuditService
+        from src.repositories import AuditLogRepository, UserSessionRepository
+        store = StoreRepository(db).create(Store(code="S1", name="Test"))
+        SettingsRepository(db).create(Settings(store_id=store.id))
+        audit = AuditService(AuditLogRepository(db))
+        auth = AuthService(
+            UserRepository(db), UserSessionRepository(db),
+            SettingsRepository(db), audit,
+        )
+        user_repo = UserRepository(db)
+        user_repo.create(User(
+            store_id=store.id, username="csrfuser",
+            password_hash=auth._hash_password("TestPassword123!"),
+            display_name="CSRF User", role="front_desk_agent",
+        ))
+        db.commit()
+
+    return application
+
+
 class TestCSRFEnforcement:
-    def setup_method(self):
-        from app import create_app
-        import tempfile
-        self.tmp_db = tempfile.NamedTemporaryFile(delete=False, suffix=".db")
-        self.tmp_db.close()
-        self.app = create_app(db_path=self.tmp_db.name)
-        self.app.config["TESTING"] = True
-        # Seed a user
-        with self.app.app_context():
-            from app import get_db
-            from flask import g
-            g.db_path = self.tmp_db.name
-            db = get_db()
-            from src.repositories import (
-                StoreRepository, SettingsRepository, UserRepository,
-            )
-            from src.models.store import Store
-            from src.models.user import User
-            from src.models.settings import Settings
-            from src.services.auth_service import AuthService
-            from src.services.audit_service import AuditService
-            from src.repositories import AuditLogRepository, UserSessionRepository
-            store = StoreRepository(db).create(Store(code="S1", name="Test"))
-            SettingsRepository(db).create(Settings(store_id=store.id))
-            audit = AuditService(AuditLogRepository(db))
-            auth = AuthService(
-                UserRepository(db), UserSessionRepository(db),
-                SettingsRepository(db), audit,
-            )
-            user_repo = UserRepository(db)
-            user_repo.create(User(
-                store_id=store.id, username="csrfuser",
-                password_hash=auth._hash_password("TestPassword123!"),
-                display_name="CSRF User", role="front_desk_agent",
-            ))
-            db.commit()
-
-    def teardown_method(self):
-        os.remove(self.tmp_db.name)
-
-    def test_mutating_request_without_csrf_is_rejected(self):
-        with self.app.test_client() as c:
+    def test_mutating_request_without_csrf_is_rejected(self, csrf_app):
+        with csrf_app.test_client() as c:
             # Login to get session cookie
             r = c.post("/api/auth/login", json={
                 "username": "csrfuser", "password": "TestPassword123!",
@@ -300,8 +307,8 @@ class TestCSRFEnforcement:
             assert r2.status_code == 403
             assert "CSRF" in r2.get_json()["error"]["message"]
 
-    def test_mutating_request_with_valid_csrf_passes(self):
-        with self.app.test_client() as c:
+    def test_mutating_request_with_valid_csrf_passes(self, csrf_app):
+        with csrf_app.test_client() as c:
             r = c.post("/api/auth/login", json={
                 "username": "csrfuser", "password": "TestPassword123!",
             })
@@ -311,16 +318,16 @@ class TestCSRFEnforcement:
             assert r2.status_code == 400
             assert "Missing required fields" in r2.get_json()["error"]["message"]
 
-    def test_mutating_request_with_wrong_csrf_rejected(self):
-        with self.app.test_client() as c:
+    def test_mutating_request_with_wrong_csrf_rejected(self, csrf_app):
+        with csrf_app.test_client() as c:
             c.post("/api/auth/login", json={
                 "username": "csrfuser", "password": "TestPassword123!",
             })
             r2 = c.post("/api/tickets", json={}, headers={"X-CSRF-Token": "wrong_token"})
             assert r2.status_code == 403
 
-    def test_get_request_bypasses_csrf(self):
-        with self.app.test_client() as c:
+    def test_get_request_bypasses_csrf(self, csrf_app):
+        with csrf_app.test_client() as c:
             c.post("/api/auth/login", json={
                 "username": "csrfuser", "password": "TestPassword123!",
             })
@@ -328,8 +335,8 @@ class TestCSRFEnforcement:
             r = c.get("/api/settings")
             assert r.status_code == 200
 
-    def test_csrf_cookies_set_after_login(self):
-        with self.app.test_client() as c:
+    def test_csrf_cookies_set_after_login(self, csrf_app):
+        with csrf_app.test_client() as c:
             r = c.post("/api/auth/login", json={
                 "username": "csrfuser", "password": "TestPassword123!",
             })

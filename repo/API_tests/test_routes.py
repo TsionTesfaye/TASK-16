@@ -28,6 +28,12 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setenv("RECLAIM_OPS_DEV_MODE", "true")
     monkeypatch.setenv("RECLAIM_OPS_REQUIRE_TLS", "false")
     monkeypatch.setenv("SECURE_COOKIES", "false")
+    # Export execution writes CSV files — point to writable temp dir
+    export_dir = str(tmp_path / "exports")
+    monkeypatch.setenv("EXPORT_OUTPUT_DIR", export_dir)
+    # Patch the module-level constant that was already read at import time
+    import src.services.export_service as _es
+    monkeypatch.setattr(_es, "EXPORT_OUTPUT_DIR", export_dir)
     db_path = str(tmp_path / "test.db")
     application = create_app(db_path=db_path)
     application.config["TESTING"] = True
@@ -368,9 +374,12 @@ class TestXSSSafeRendering:
     def test_notifications_template_escapes_message_body(self, app, client):
         resp = self._fetch(app, client, "/ui/notifications")
         body = resp.get_data(as_text=True)
-        # The historical XSS hotspot — message_body — must now be wrapped in H().
-        assert "H(m.message_body)" in body
-        assert "+m.message_body+" not in body  # the unsafe pattern is gone
+        # Message history is loaded server-side via HTMX partial
+        # (Jinja2 auto-escapes), not client-side JS interpolation.
+        # The JS-side showR() helper must use H() for error messages.
+        assert "H(d.error.message)" in body or "H(d.data" in body
+        # The unsafe raw interpolation pattern must be absent
+        assert "+m.message_body+" not in body
 
     def test_login_template_uses_textcontent(self, app, client):
         resp = client.get("/ui/login")
@@ -387,11 +396,12 @@ class TestCookieTampering:
 
     def test_tampered_cookie_rejected(self, app, client):
         _seed_and_login(app, client)
-        # Tamper with the session cookie by flipping a character
-        cookies = {c.name: c.value for c in client.cookie_jar}
-        original = cookies.get("session_nonce", "")
+        # Tamper with the session cookie by flipping a character.
+        # Flask 3.x exposes cookies via get_cookie(); cookie_jar is removed.
+        original = client.get_cookie("session_nonce")
         if original:
-            tampered = original[:-1] + ("X" if original[-1] != "X" else "Y")
+            val = original.value
+            tampered = val[:-1] + ("X" if val[-1] != "X" else "Y")
             client.set_cookie("session_nonce", tampered, domain="localhost")
         resp = client.get("/api/settings")
         assert resp.status_code == 401
@@ -490,7 +500,7 @@ class TestExportUIOptions:
     """The export UI dropdown must only offer types the service supports."""
 
     def test_export_ui_matches_service(self, app, client):
-        _seed_and_login(app, client)
+        _seed_and_login(app, client, role=UserRole.SHIFT_SUPERVISOR, username="sup_export_ui")
         resp = client.get("/ui/exports")
         body = resp.get_data(as_text=True)
         # The two supported types must be present
@@ -512,7 +522,7 @@ class TestDialFlow:
         _seed_and_login(app, client)
         resp = client.get("/ui/tickets")
         body = resp.get_data(as_text=True)
-        assert "dialCustomer" in body
+        assert "dialFromQueue" in body
         assert "/api/tickets/" in body and "/dial" in body
 
     def test_dial_rejects_host_role(self, app, client):
@@ -528,10 +538,6 @@ class TestMetricsRouteFilter:
 
     def test_metrics_with_category_filter(self, app, client):
         store = _seed_and_login(app, client, role=UserRole.OPERATIONS_MANAGER, username="ops3")
-        # Create a ticket to ensure the filter runs against real data
-        client2 = app.test_client()
-        with client2.session_transaction():
-            pass
         resp = client.get(
             "/api/exports/metrics?date_start=2020-01-01&date_end=2030-12-31"
             "&clothing_category=shirts"
@@ -1533,18 +1539,21 @@ class TestCrossStoreAccessMatrix:
         resp = client.post("/api/auth/login", json={
             "username": "xadmin", "password": "AdminPass123!",
         })
+        assert resp.status_code == 200, f"Admin re-login failed: {resp.get_json()}"
         csrf = resp.get_json()["data"]["csrf_token"]
         client.environ_base["HTTP_X_CSRF_TOKEN"] = csrf
-        client.post("/api/auth/users", json={
-            "username": "qc_b", "password": "QCBPass123!",
+        resp = client.post("/api/auth/users", json={
+            "username": "qc_b", "password": "QCBPassWord123!",
             "display_name": "QC B", "role": "qc_inspector",
             "store_id": store_b,
         })
+        assert resp.status_code == 201, f"QC B creation failed: {resp.get_json()}"
 
         # Agent A creates ticket
         resp = client.post("/api/auth/login", json={
             "username": "agent_a", "password": "AgentAPass123!",
         })
+        assert resp.status_code == 200, f"Agent A login failed: {resp.get_json()}"
         csrf = resp.get_json()["data"]["csrf_token"]
         client.environ_base["HTTP_X_CSRF_TOKEN"] = csrf
         resp = client.post("/api/tickets", json={
@@ -1553,13 +1562,15 @@ class TestCrossStoreAccessMatrix:
             "condition_grade": "A",
             "estimated_weight_lbs": 10.0,
         })
+        assert resp.status_code == 201, f"Ticket creation failed: {resp.get_json()}"
         ticket_a = resp.get_json()["data"]["id"]
         client.post(f"/api/tickets/{ticket_a}/submit-qc")
 
         # QC inspector from store B tries inspection on store A ticket
         resp = client.post("/api/auth/login", json={
-            "username": "qc_b", "password": "QCBPass123!",
+            "username": "qc_b", "password": "QCBPassWord123!",
         })
+        assert resp.status_code == 200, f"QC B login failed: {resp.get_json()}"
         csrf = resp.get_json()["data"]["csrf_token"]
         client.environ_base["HTTP_X_CSRF_TOKEN"] = csrf
         resp = client.post("/api/qc/inspections", json={
