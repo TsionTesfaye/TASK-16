@@ -100,19 +100,26 @@ chmod +x run_tests.sh
 ./run_tests.sh
 ```
 
-The script builds the `test-runner` image and runs the full pytest suite (unit + API + cross-store integration). Exits `0` on success, non-zero on any failure.
+The script runs two stages and exits `0` only when both pass, non-zero on any failure or coverage shortfall.
 
-**Suite coverage (451 tests):**
+**Stage 1 — pytest (908 tests, 93.64% line coverage, gate ≥ 90%):**
 
 | Layer | Tests |
 |-------|-------|
-| Schema + models + enums | 53 |
-| Repositories (CRUD + conditional updates) | 47 |
-| Services (business logic) | 133 |
+| Schema + models + enums | 70 |
+| Repositories (CRUD + conditional updates) | 66 |
+| Services (business logic) | 159 |
 | Security (crypto, CSRF, sessions, masking) | 29 |
-| Hardening (transactions, idempotency, audit immutability) | 21 |
-| API endpoints (routes, auth, role gates, validation) | 121 |
-| HTMX partials (cross-store matrix, RBAC, null-store) | 47 |
+| Hardening (transactions, idempotency, audit immutability) | 13 |
+| Coverage expansion (branches, validation, role gates) | 261 |
+| API endpoints (routes, auth, role gates, validation) | 109 |
+| API coverage + flow + deep tests | 157 |
+| HTMX partials (cross-store matrix, RBAC, null-store) | 26 |
+| Health | 2 |
+
+**Stage 2 — Playwright E2E (16 tests, 6 roles, real browser):**
+
+Browser-driven tests run against a live backend container over plain HTTP. Covers operator, QC inspector, host, shift supervisor (×2 for dual-control approval), and administrator workflows — including HTMX partial state transitions, hx-prompt dialogs, and role-based page redirects.
 
 ## Seeded Credentials
 
