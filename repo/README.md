@@ -1,235 +1,159 @@
-# ReclaimOps Offline Operations Suite
+# ReclaimOps — Offline Operations Suite
 
-A fully offline, HTMX-driven Flask + SQLite system for running an in-store recyclable-textiles buyback program — buyback ticket intake, QC & traceability, table/room management, offline notifications, member administration, and operational reporting.
+A fully offline, HTMX-driven buyback operations platform for in-store recyclable-textile programs. Handles ticket intake, QC & traceability, table/room state, notifications, member administration, and operational reporting. No internet, no external APIs, no cloud services — one `docker compose up` brings the entire stack online.
 
-Everything runs locally: no internet, no external APIs, no cloud services. One `docker compose up` command brings the entire stack online.
+## Architecture & Tech Stack
 
-## Quick Start (Secure by Default)
-
-```bash
-docker compose up
-```
-
-The default deployment enables **HTTPS with TLS**. On first boot, a self-signed certificate is auto-generated. Open **`https://localhost:5443/ui/login`** (accept the self-signed cert warning once). Health endpoint: `https://localhost:5443/health`.
-
-> **Production certificates:** Replace the auto-generated cert by mounting real PEM files at the paths configured in `TLS_CERT_PATH` / `TLS_KEY_PATH`. The system refuses to start without valid TLS in the default profile.
-
-> **Dev-only mode (no TLS):** For local development without TLS, use the explicit dev profile — this mode is **not compliant for acceptance deployment**:
-> ```bash
-> docker compose --profile dev up backend-dev
-> ```
-> Then open `http://localhost:5000/ui/login`.
-
-> **First admin:** A brand-new deployment has no users. Create the initial administrator by POSTing to `/api/auth/bootstrap` with `username`, `password`, and `display_name`. This endpoint is unauthenticated by design and **locks itself permanently** after the first successful call — subsequent requests return `403`. All later users must be created through `/api/auth/users` by an administrator.
-
-> **Fresh install → working intake** (full 0→1 sequence):
-> 1. `POST /api/auth/bootstrap` — create the first admin
-> 2. `POST /api/auth/login` — log in as admin
-> 3. `POST /api/admin/stores` — create a store (`code`, `name`, optional `route_code`). Settings are auto-created.
-> 4. `POST /api/admin/pricing_rules` — create a pricing rule (`store_id`, `base_rate_per_lb`, optional `bonus_pct`, `max_ticket_payout`, `eligibility_start_local`, `eligibility_end_local` in `MM/DD/YYYY hh:mm AM/PM` format)
-> 5. `POST /api/admin/service_tables` — create tables (`store_id`, `table_code`, `area_type`: `intake_table` / `private_room`)
-> 6. `POST /api/auth/users` — create operator accounts (`store_id`, `role`)
-> 7. Log in as an operator → create tickets, manage tables, run QC via the UI
-
-> **Overdue quarantines:** The startup reconciliation sweep surfaces overdue quarantine returns via **logs only** (look for `overdue quarantine` entries in `/storage/logs`). There is no in-app alert — operators are expected to watch the log stream.
-
-**First startup does the following automatically:**
-
-1. Creates the data directory and runs schema migrations (tracked in a `schema_migrations` table — idempotent).
-2. Generates a fresh AES-256 encryption key at `/run/secrets/reclaim_ops_key` plus an `.initialized` marker. **Back up this key.** If it is lost after initial setup, the system refuses to regenerate — it raises `KeyFileMissingError` rather than silently orphaning all existing encrypted data.
-3. Runs a startup reconciliation sweep (expires stale pending approvals and exports, surfaces overdue quarantine returns).
-
-## Run Tests
-
-```bash
-./run_tests.sh
-```
-
-This builds a test container and runs all unit and API tests inside Docker using pytest. Current suite: **250+ tests** across schema, models, enums, repositories, services, security, hardening, and API layers.
-
-You can also run locally:
-
-```bash
-cd fullstack/backend
-pip install -r requirements.txt
-cd ../..
-python -m pytest unit_tests/ API_tests/ -v
-```
+* **Frontend:** Jinja2 server-rendered templates + HTMX (vendored — no CDN)
+* **Backend:** Flask 3.1 on Python 3.11, Gunicorn with threaded workers
+* **Database:** SQLite in WAL mode, foreign keys enforced, migration-tracked schema, DB-level immutability triggers on audit log
+* **Security:** bcrypt password hashing, AES-256-GCM at rest, HMAC-signed session cookies, CSRF tokens, TLS-first secure-by-default
+* **Containerization:** Docker & Docker Compose
 
 ## Project Structure
 
-```
-repo/
-  docker-compose.yml              # Backend + test runner services
-  run_tests.sh                    # One-command test runner
-  README.md
-  fullstack/
-    backend/
-      app.py                      # Flask entry point, startup reconciliation, DI
-      Dockerfile
-      requirements.txt            # flask, gunicorn, pytest, bcrypt, cryptography
-      migrations/
-        001_initial_schema.sql    # Full SQLite schema (migration-tracked)
-      templates/                  # Jinja2 + HTMX templates
-      static/css/                 # Minimal operational CSS
-      src/
-        database.py               # Connection + migration runner
-        enums/                    # 17 enum types
-        models/                   # 23 dataclass models
-        repositories/             # 24 repositories (CRUD + conditional updates)
-        services/                 # 13 services (all business logic)
-        routes/                   # 10 route blueprints (API + UI)
-        security/                 # crypto (AES-256-GCM), masking
-        scheduler/                # Idempotent sweep + optional background runner
-    storage/
-      exports/ uploads/ reports/ logs/    # Mounted volumes
-  unit_tests/                     # Schema, models, repos, services, security, hardening
-  API_tests/                      # API endpoint tests
-```
-
-## Architecture
-
-**Layered — strict separation:**
-
-```
-HTMX Browser UI
-    ↓
-Flask Routes (thin controllers)
-    ↓
-Services (all business logic)
-    ↓
-Repositories (raw SQL, parameterized)
-    ↓
-SQLite (WAL mode, FKs enforced)
+```text
+.
+├── fullstack/
+│   ├── backend/
+│   │   ├── app.py                  # Flask entry point
+│   │   ├── Dockerfile
+│   │   ├── docker-entrypoint.sh    # Auto-generates TLS cert on first boot
+│   │   ├── requirements.txt
+│   │   ├── migrations/             # SQL migrations (tracked)
+│   │   ├── templates/              # Jinja2 + HTMX templates
+│   │   ├── static/                 # CSS + vendored HTMX
+│   │   └── src/
+│   │       ├── enums/              # 17 enum types
+│   │       ├── models/             # Dataclass models
+│   │       ├── repositories/       # Raw-SQL CRUD
+│   │       ├── services/           # All business logic
+│   │       ├── routes/             # Flask blueprints (API + UI + HTMX partials)
+│   │       ├── security/           # Crypto, masking, session cookies
+│   │       └── scheduler/          # Idempotent reconciliation sweep
+│   └── storage/                    # Docker-mounted volumes (exports, uploads, logs, reports)
+├── unit_tests/                     # Schema, models, repos, services, security, hardening
+├── API_tests/                      # API + HTMX partial + cross-store matrix tests
+├── docs/
+│   └── api-spec.md                 # Full API specification
+├── .gitignore
+├── docker-compose.yml
+├── run_tests.sh
+└── README.md
 ```
 
-- **Backend**: Flask 3.x on Python 3.11
-- **Database**: SQLite with WAL mode, foreign keys ON, audit log immutability triggers, migration tracking
-- **Auth**: Username + bcrypt password hashing; signed session cookies with anti-replay nonces; CSRF token on every mutating request
-- **Crypto**: AES-256-GCM for phone numbers / sensitive fields; key lives outside the DB at `/run/secrets/reclaim_ops_key`
-- **Scheduler**: Local-only idempotent sweep, runs at startup for reconciliation; optional background thread
+## Prerequisites
 
-## Core Flows Exposed via UI & API
+* Docker
+* Docker Compose (v2 plugin, `docker compose ...`)
 
-- Buyback ticket intake → QC → variance confirmation → supervisor approval → completion
-- Refund initiation → supervisor approval (with password re-entry) → refund
-- QC inspection, quarantine, concession sign-off, batch traceability, recall generation
-- Table/room state machine (available → occupied → pre_checkout → cleared) with merge/transfer
-- Notification center (logged messages + call attempts + retry reminders)
-- Member lifecycle + CSV import
-- Operations metrics (order volume, revenue, refund rate, load factor)
-- Export requests with supervisor approval and watermarks
-- Schedule adjustment requests (dual-control)
+## Running the Application
+
+Default profile (secure-by-default, TLS on port 5443):
+
+```bash
+docker compose up --build -d
+```
+
+A self-signed TLS certificate is auto-generated on first boot. The database, encryption key, and session signing key persist in Docker named volumes.
+
+Dev profile (plain HTTP on port 5000 — **not for production**):
+
+```bash
+docker compose --profile dev up --build -d backend-dev
+```
+
+## Access
+
+* **Frontend (TLS):** https://localhost:5443/ui/login (accept self-signed cert once)
+* **Frontend (dev):** http://localhost:5000/ui/login
+* **Backend API:** https://localhost:5443/api/ (or http://localhost:5000/api/ in dev)
+* **API docs:** [`docs/api-spec.md`](docs/api-spec.md) — 87 endpoints across 14 groups
+* **Health check:** https://localhost:5443/health
+
+## First-run Bootstrap
+
+A fresh deployment has zero users. Create the initial administrator once:
+
+```bash
+curl -k -X POST https://localhost:5443/api/auth/bootstrap \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"ChangeMeNow123!","display_name":"Admin"}'
+```
+
+The bootstrap endpoint locks itself permanently after first success. All subsequent users are created via `POST /api/auth/users` by an administrator.
+
+## Stop
+
+```bash
+docker compose down -v
+```
+
+(`-v` also removes the `db-data` and `key-data` volumes — a full reset.)
+
+## Testing
+
+All tests run inside Docker against a fresh database. No local Python or system dependencies are required.
+
+```bash
+chmod +x run_tests.sh
+./run_tests.sh
+```
+
+The script builds the `test-runner` image and runs the full pytest suite (unit + API + cross-store integration). Exits `0` on success, non-zero on any failure.
+
+**Suite coverage (451 tests):**
+
+| Layer | Tests |
+|-------|-------|
+| Schema + models + enums | 53 |
+| Repositories (CRUD + conditional updates) | 47 |
+| Services (business logic) | 133 |
+| Security (crypto, CSRF, sessions, masking) | 29 |
+| Hardening (transactions, idempotency, audit immutability) | 21 |
+| API endpoints (routes, auth, role gates, validation) | 121 |
+| HTMX partials (cross-store matrix, RBAC, null-store) | 47 |
+
+## Seeded Credentials
+
+The system intentionally ships **with no seeded users** — an empty-credentials deployment is a security requirement for the acceptance profile. Create the first administrator with the bootstrap call above; use that admin to provision operator accounts.
+
+| Role | Username | Password |
+|------|----------|----------|
+| Administrator | _(create via `/api/auth/bootstrap`)_ | _(your choice, 12+ chars)_ |
+| Operators (front desk, QC, host, supervisor, ops manager) | _(create via `/api/auth/users` as admin)_ | _(admin-issued, 12+ chars)_ |
+
+**Password policy:** 12-character minimum. 5 failed attempts lock the account for 15 minutes.
 
 ## Security Guarantees
 
 | Control | Implementation |
-|---|---|
-| Password hashing | bcrypt (12 rounds) with PBKDF2 backward-compatibility |
-| Session management | httponly, SameSite=Strict, time-limited cookies with nonces |
-| CSRF | X-CSRF-Token header validated on all POST/PUT/PATCH/DELETE |
-| Encryption at rest | AES-256-GCM on sensitive fields (phone, etc.) |
+|---------|----------------|
+| Password hashing | bcrypt (12 rounds) |
+| Session management | HttpOnly, Secure, SameSite=Strict, HMAC-signed nonce, 8h max / 30m idle |
+| CSRF | `X-CSRF-Token` header required on all POST/PUT/PATCH/DELETE |
+| Encryption at rest | AES-256-GCM on phone numbers and sensitive fields |
 | Data masking | Sensitive fields masked by default in API responses |
-| Audit log | Append-only, tamper-chain hashed, DB-level DELETE/UPDATE triggers |
-| Dual-control | Variance, refund, export, schedule adjustments — atomic conditional UPDATE prevents replay |
-| Key loss protection | Post-init key loss raises `KeyFileMissingError` — NO silent regeneration |
-| CSV upload | CSV-only, 5MB max, UTF-8, no binary (NUL/high-binary-ratio rejected), header + column-count validated, at least one data row required |
-
-## Operational Hardening
-
-- **Startup reconciliation** — idempotent sweep on every boot expires stale pending approvals, expires stale export requests, and surfaces overdue quarantine returns.
-- **Transaction safety** — request-scoped connection commits on success, rolls back on any exception. Critical approval paths use conditional UPDATE + rowcount check for atomic execution.
-- **Idempotency** — duplicate approval / execution attempts fail with an explicit error; no partial state possible.
-- **Concurrency** — approvals, refunds, exports, and schedule adjustments all use `UPDATE ... WHERE status='pending'` patterns that survive concurrent requests.
-- **Audit immutability** — DB triggers prevent DELETE/UPDATE on `audit_logs`.
-- **Migration tracking** — `schema_migrations` table prevents re-running applied migrations.
+| Audit log | Append-only, tamper-chain hashed, DB triggers block DELETE/UPDATE |
+| Dual-control | Variance, refund, export, schedule, price-override approvals use atomic conditional UPDATE |
+| Store isolation | Non-admin users cannot access cross-store data; query-param overrides rejected |
+| Role gates | Least-privilege on UI pages, API endpoints, and HTMX partials |
+| CSV upload | 5MB max, UTF-8, no binary (NUL/high-ratio rejected), header + column-count validated |
+| Key loss protection | Post-init key loss raises `KeyFileMissingError` — no silent regeneration |
+| TLS-first | Refuses to start without valid certs + `SECURE_COOKIES=true` (unless explicit dev mode) |
 
 ## Environment Variables
 
 | Variable | Default | Description |
-|---|---|---|
-| `RECLAIM_OPS_DB_PATH` | `/data/reclaim_ops.db` | SQLite database file path |
-| `RECLAIM_OPS_KEY_PATH` | `/run/secrets/reclaim_ops_key` | Encryption key file path |
-| `SECURE_COOKIES` | `true` | Secure-by-default. Set `false` only in dev mode. |
-| `TLS_CERT_PATH` | _(unset)_ | PEM certificate path. Docker entrypoint auto-generates a self-signed cert if missing. |
-| `TLS_KEY_PATH`  | _(unset)_ | PEM private key path. Docker entrypoint auto-generates if missing. |
-| `TLS_PORT` | `5443` | HTTPS listen port |
-| `RECLAIM_OPS_REQUIRE_TLS` | `true` | **Secure-by-default.** App refuses to start without TLS certs and secure cookies. Set `false` with `RECLAIM_OPS_DEV_MODE=true` for local dev only. |
-| `RECLAIM_OPS_DEV_MODE` | `false` | Set `true` to disable TLS enforcement. **Dev only — not for acceptance/production.** |
-| `SESSION_KEY_PATH` | `/run/secrets/reclaim_ops_session_key` | HMAC key used to sign the `session_nonce` cookie. Auto-generated on first start (mode 0600) — back it up alongside the encryption key. |
-| `EXPORT_OUTPUT_DIR` | `/storage/exports` | Directory where completed export CSVs are written |
-| `LOG_DIR` | `/storage/logs` | Directory for the rotating `reclaim_ops.log` file (10 MB × 5 backups). Falls back to stdout-only if the directory is not writable. |
-| `SCHEDULER_BACKGROUND` | `false` | Set `true` to run the sweep in a daemon thread |
+|----------|---------|-------------|
+| `RECLAIM_OPS_DB_PATH` | `/data/reclaim_ops.db` | SQLite database file |
+| `RECLAIM_OPS_KEY_PATH` | `/run/secrets/reclaim_ops_key` | AES-256 encryption key |
+| `SESSION_KEY_PATH` | `/run/secrets/reclaim_ops_session_key` | HMAC session-cookie key |
+| `TLS_CERT_PATH` / `TLS_KEY_PATH` | _(auto-generated)_ | PEM cert + key |
+| `SECURE_COOKIES` | `true` | Secure cookie flag |
+| `RECLAIM_OPS_REQUIRE_TLS` | `true` | Refuse start without TLS |
+| `RECLAIM_OPS_DEV_MODE` | `false` | Set `true` to disable TLS enforcement (dev only) |
+| `EXPORT_OUTPUT_DIR` | `/storage/exports` | Where generated CSV exports are written |
+| `LOG_DIR` | `/storage/logs` | Rotating log file directory |
+| `SCHEDULER_BACKGROUND` | `false` | Run reconciliation sweep in background thread |
 | `SCHEDULER_INTERVAL_SECONDS` | `300` | Background sweep interval |
-| `EXPORT_PENDING_MAX_HOURS` | `24` | Export request pending-expiry window |
-| `SCHEDULE_PENDING_MAX_HOURS` | `48` | Schedule adjustment pending-expiry window |
-| `FLASK_ENV` | `production` | Flask environment |
-
-## TLS (HTTPS)
-
-ReclaimOps is **secure-by-default**: the app requires TLS and will refuse to start without valid certificate paths and `SECURE_COOKIES=true`. The Docker entrypoint auto-generates a self-signed cert on first boot — no manual steps needed for `docker compose up`.
-
-**Custom certificates:** Replace the auto-generated cert by mounting real PEM files at `TLS_CERT_PATH` / `TLS_KEY_PATH`. Gunicorn terminates TLS directly via `--certfile`/`--keyfile` on port 5443.
-
-**Dev-only (no TLS):** To run without TLS for local development, explicitly opt out:
-```bash
-docker compose --profile dev up backend-dev
-```
-Or set `RECLAIM_OPS_DEV_MODE=true` + `RECLAIM_OPS_REQUIRE_TLS=false` + `SECURE_COOKIES=false`.
-
-## Docker Volumes
-
-The canonical runtime uses these mounts:
-
-| Mount | Purpose |
-|---|---|
-| `db-data:/data` | SQLite database (persistent) |
-| `./fullstack/storage/exports:/storage/exports` | CSV exports |
-| `./fullstack/storage/uploads:/storage/uploads` | CSV imports |
-| `./fullstack/storage/reports:/storage/reports` | Generated reports |
-| `./fullstack/storage/logs:/storage/logs` | Log output |
-
-**Production note**: Mount the encryption key file (or Docker secret) at `/run/secrets/reclaim_ops_key` and back it up separately — the system refuses to regenerate it after initial setup.
-
-## Key File Lifecycle
-
-| State | Behavior |
-|---|---|
-| No key, no marker | **First init** — generates key + marker, logs warning |
-| Key present, marker present | **Normal startup** — loads key |
-| Key present, marker missing | **Pre-marker install** — loads key and backfills marker |
-| **No key, marker present** | **POST-INIT LOSS** — raises `KeyFileMissingError`, refuses to start crypto operations |
-| Corrupt key | Raises `CorruptKeyError`, does NOT overwrite the bad file |
-
-If the encryption key is ever lost in production:
-1. Restore from backup (preferred).
-2. Or accept total loss of encrypted data: manually delete the `.initialized` marker file to force re-initialization.
-
-## Entity Catalog
-
-| Entity | Table |
-|--------|-------|
-| Store | stores |
-| User | users |
-| UserSession | user_sessions |
-| BuybackTicket | buyback_tickets |
-| PricingRule | pricing_rules |
-| PricingCalculationSnapshot | pricing_calculation_snapshots |
-| VarianceApprovalRequest | variance_approval_requests |
-| QCInspection | qc_inspections |
-| QuarantineRecord | quarantine_records |
-| Batch | batches |
-| BatchGenealogyEvent | batch_genealogy_events |
-| RecallRun | recall_runs |
-| ServiceTable | service_tables |
-| TableSession | table_sessions |
-| TableActivityEvent | table_activity_events |
-| NotificationTemplate | notification_templates |
-| TicketMessageLog | ticket_message_logs |
-| ClubOrganization | club_organizations |
-| Member | members |
-| MemberHistoryEvent | member_history_events |
-| ExportRequest | export_requests |
-| ScheduleAdjustmentRequest | schedule_adjustment_requests |
-| AuditLog | audit_logs |
-| Settings | settings |

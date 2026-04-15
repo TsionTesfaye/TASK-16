@@ -71,6 +71,46 @@ services:
       timeout: 5s
       retries: 3
 
+  # ── E2E: backend service instance targeted by Playwright ──
+  # Separate from `backend-dev` so E2E runs on its own network
+  # without port collisions or data contamination.
+  backend-e2e:
+    build:
+      context: ./fullstack/backend
+      dockerfile: Dockerfile
+    environment:
+      - RECLAIM_OPS_DB_PATH=/tmp/e2e.db
+      - RECLAIM_OPS_KEY_PATH=/tmp/e2e.key
+      - SESSION_KEY_PATH=/tmp/e2e_session.key
+      - EXPORT_OUTPUT_DIR=/tmp/e2e_exports
+      - LOG_DIR=/tmp/e2e_logs
+      - RECLAIM_OPS_DEV_MODE=true
+      - RECLAIM_OPS_REQUIRE_TLS=false
+      - SECURE_COOKIES=false
+    expose:
+      - "5000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health').read()"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    profiles:
+      - e2e
+
+  e2e-runner:
+    build:
+      context: ./E2E_tests
+      dockerfile: Dockerfile
+    depends_on:
+      backend-e2e:
+        condition: service_healthy
+    environment:
+      - E2E_BASE_URL=http://backend-e2e:5000
+    volumes:
+      - ./E2E_tests:/e2e
+    profiles:
+      - e2e
+
   test-runner:
     build:
       context: ./fullstack/backend
@@ -82,6 +122,8 @@ services:
       - RECLAIM_OPS_DB_PATH=/tmp/test_reclaim_ops.db
       - RECLAIM_OPS_KEY_PATH=/tmp/test_reclaim_ops_key
       - SESSION_KEY_PATH=/tmp/test_session_key
+      - EXPORT_OUTPUT_DIR=/tmp/test_exports
+      - LOG_DIR=/tmp/test_logs
       - RECLAIM_OPS_DEV_MODE=true
       - RECLAIM_OPS_REQUIRE_TLS=false
       - SECURE_COOKIES=false

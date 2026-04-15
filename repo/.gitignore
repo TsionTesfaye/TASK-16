@@ -17,6 +17,12 @@ env/
 htmlcov/
 .coverage
 *.log
+
+# AI tool / session artifacts — never commit
+.claude/
+--cache-result/
+sessions/
+.tmp/
 fullstack/storage/exports/*
 fullstack/storage/uploads/*
 fullstack/storage/reports/*
