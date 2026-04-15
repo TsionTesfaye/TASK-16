@@ -36,7 +36,7 @@ echo ""
 echo "── Stage 1: Unit + integration/API tests (with coverage gate ≥90%) ──"
 $COMPOSE --profile test build test-runner
 $COMPOSE --profile test run --rm \
-    --entrypoint "python -m pytest /unit_tests /API_tests --cov=/app/src --cov-report=term --cov-fail-under=95 --tb=short" \
+    --entrypoint "python -m pytest /unit_tests /API_tests --cov=/app/src --cov-report=term --cov-fail-under=90 --tb=short" \
     test-runner
 
 echo ""
