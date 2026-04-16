@@ -34,73 +34,72 @@ A fully offline, HTMX-driven buyback operations platform for in-store recyclable
 │   └── storage/                    # Docker-mounted volumes (exports, uploads, logs, reports)
 ├── unit_tests/                     # Schema, models, repos, services, security, hardening
 ├── API_tests/                      # API + HTMX partial + cross-store matrix tests
+├── E2E_tests/                      # Playwright browser tests (6 roles)
 ├── docs/
 │   └── api-spec.md                 # Full API specification
-├── .gitignore
-├── docker-compose.yml
-├── run_tests.sh
+├── docker-compose.yml              # Multi-container orchestration
+├── run_tests.sh                    # Standardized test execution script
 └── README.md
 ```
 
 ## Prerequisites
 
-* Docker
-* Docker Compose (v2 plugin, `docker compose ...`)
+* [Docker](https://docs.docker.com/get-docker/)
+* [Docker Compose](https://docs.docker.com/compose/install/) (v2 plugin — `docker compose ...`)
 
 ## Running the Application
 
-Default profile (secure-by-default, TLS on port 5443):
+1. **Build and start containers:**
 
-```bash
-docker compose up --build -d
-```
+   ```bash
+   docker compose up --build -d
+   ```
 
-A self-signed TLS certificate is auto-generated on first boot. The database, encryption key, and session signing key persist in Docker named volumes.
+   A self-signed TLS certificate is auto-generated on first boot. The database, encryption key, and session signing key persist in Docker named volumes.
 
-Dev profile (plain HTTP on port 5000 — **not for production**):
+2. **Access the app:**
 
-```bash
-docker compose --profile dev up --build -d backend-dev
-```
+   * Frontend: `https://localhost:5443/ui/login` (accept self-signed cert once)
+   * Backend API: `https://localhost:5443/api/`
+   * API Documentation: [`docs/api-spec.md`](docs/api-spec.md) — 87 endpoints across 14 groups
+   * Health check: `https://localhost:5443/health`
 
-## Access
+   > **Dev profile** (plain HTTP on port 5000, no TLS — not for production):
+   > ```bash
+   > docker compose --profile dev up --build -d backend-dev
+   > ```
+   > Then access at `http://localhost:5000/ui/login`
 
-* **Frontend (TLS):** https://localhost:5443/ui/login (accept self-signed cert once)
-* **Frontend (dev):** http://localhost:5000/ui/login
-* **Backend API:** https://localhost:5443/api/ (or http://localhost:5000/api/ in dev)
-* **API docs:** [`docs/api-spec.md`](docs/api-spec.md) — 87 endpoints across 14 groups
-* **Health check:** https://localhost:5443/health
+3. **Bootstrap the first administrator** (fresh deployment only):
 
-## First-run Bootstrap
+   ```bash
+   curl -k -X POST https://localhost:5443/api/auth/bootstrap \
+     -H "Content-Type: application/json" \
+     -d '{"username":"admin","password":"ChangeMeNow123!","display_name":"Admin"}'
+   ```
 
-A fresh deployment has zero users. Create the initial administrator once:
+   The bootstrap endpoint locks itself permanently after first use. All subsequent users are created via `POST /api/auth/users` by an administrator.
 
-```bash
-curl -k -X POST https://localhost:5443/api/auth/bootstrap \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"ChangeMeNow123!","display_name":"Admin"}'
-```
+4. **Stop the application:**
 
-The bootstrap endpoint locks itself permanently after first success. All subsequent users are created via `POST /api/auth/users` by an administrator.
+   ```bash
+   docker compose down -v
+   ```
 
-## Stop
-
-```bash
-docker compose down -v
-```
-
-(`-v` also removes the `db-data` and `key-data` volumes — a full reset.)
+   (`-v` also removes the `db-data` and `key-data` volumes — a full reset.)
 
 ## Testing
 
-All tests run inside Docker against a fresh database. No local Python or system dependencies are required.
+All unit, integration, and E2E tests are executed via a single standardized shell script. This script automatically handles all container orchestration for the test environment.
+
+Make sure the script is executable, then run it:
 
 ```bash
 chmod +x run_tests.sh
 ./run_tests.sh
 ```
 
-The script runs two stages and exits `0` only when both pass, non-zero on any failure or coverage shortfall.
+The script exits `0` when all tests pass and the coverage gate (≥ 90%) is met, non-zero on any failure or shortfall.
 
 **Stage 1 — pytest (908 tests, 93.64% line coverage, gate ≥ 90%):**
 
@@ -123,12 +122,15 @@ Browser-driven tests run against a live backend container over plain HTTP. Cover
 
 ## Seeded Credentials
 
-The system intentionally ships **with no seeded users** — an empty-credentials deployment is a security requirement for the acceptance profile. Create the first administrator with the bootstrap call above; use that admin to provision operator accounts.
+There are no seeded user accounts. The `users` table starts completely empty by design.
 
-| Role | Username | Password |
-|------|----------|----------|
-| Administrator | _(create via `/api/auth/bootstrap`)_ | _(your choice, 12+ chars)_ |
-| Operators (front desk, QC, host, supervisor, ops manager) | _(create via `/api/auth/users` as admin)_ | _(admin-issued, 12+ chars)_ |
+To access the application:
+
+1. **Bootstrap the first admin** — `POST /api/auth/bootstrap` (locks permanently after first use, see step 3 above)
+2. **Admin creates all other users** — `POST /api/auth/users` with the desired role and credentials
+3. **Users log in** — `POST /api/auth/login` or via the UI at `/ui/login`
+
+**Password policy:** 12-character minimum. 5 failed attempts lock the account for 15 minutes.
 
 **Password policy:** 12-character minimum. 5 failed attempts lock the account for 15 minutes.
 
