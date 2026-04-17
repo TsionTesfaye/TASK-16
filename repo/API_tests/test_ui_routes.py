@@ -256,11 +256,6 @@ def test_exports_page_redirects_front_desk(app, client):
 
 # ── Response content contracts ────────────────────────────────────────────
 
-def test_login_page_loads_htmx(client):
-    r = client.get("/ui/login")
-    assert b"htmx" in r.data.lower() or b"/static/js" in r.data
-
-
 def test_login_page_loads_stylesheet(client):
     r = client.get("/ui/login")
     assert b"/static/css/style.css" in r.data

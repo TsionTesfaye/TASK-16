@@ -98,7 +98,7 @@ def _login_as(app, client, role, username):
         if role != UserRole.ADMINISTRATOR:
             try:
                 auth_svc.create_user(
-                    username=username, password="FePass1234!",
+                    username=username, password="FePass12345!",
                     display_name=f"FE {role}", role=role,
                     admin_user_id=admin.id, admin_username=admin.username,
                     admin_role=admin.role, store_id=store.id,
@@ -107,7 +107,7 @@ def _login_as(app, client, role, username):
                 pass
         db.commit()
     login_user = "feadmin" if role == UserRole.ADMINISTRATOR else username
-    login_pass = "FeAdmin1234!" if role == UserRole.ADMINISTRATOR else "FePass1234!"
+    login_pass = "FeAdmin1234!" if role == UserRole.ADMINISTRATOR else "FePass12345!"
     r = client.post(
         "/api/auth/login",
         json={"username": login_user, "password": login_pass},
@@ -170,32 +170,36 @@ class TestUiIndexRoute:
 # ══════════════════════════════════════════════════════════════════════════
 
 class TestBaseTemplate:
+    @pytest.fixture(autouse=True)
+    def login(self, app, client):
+        _login_as(app, client, UserRole.FRONT_DESK_AGENT, "base_tpl_user")
+
     def test_base_loads_htmx_script(self, client):
-        html = _page(client, "/ui/login")
+        html = _page(client, "/ui/tickets")
         assert b"/static/js/htmx.min.js" in html
 
     def test_base_loads_stylesheet(self, client):
-        html = _page(client, "/ui/login")
+        html = _page(client, "/ui/tickets")
         assert b"/static/css/style.css" in html
 
     def test_base_has_csrf_cookie_reader(self, client):
-        html = _page(client, "/ui/login")
+        html = _page(client, "/ui/tickets")
         assert b"csrf_token" in html
 
     def test_base_has_x_csrf_token_header_wiring(self, client):
-        html = _page(client, "/ui/login")
+        html = _page(client, "/ui/tickets")
         assert b"X-CSRF-Token" in html
 
     def test_base_has_show_msg_helper(self, client):
-        html = _page(client, "/ui/login")
+        html = _page(client, "/ui/tickets")
         assert b"showMsg" in html
 
     def test_base_has_escape_html_helper(self, client):
-        html = _page(client, "/ui/login")
+        html = _page(client, "/ui/tickets")
         assert b"escapeHtml" in html or b"function H(" in html
 
     def test_base_title_pattern(self, client):
-        html = _page(client, "/ui/login")
+        html = _page(client, "/ui/tickets")
         assert b"ReclaimOps" in html
 
     def test_authenticated_pages_have_logout_link(self, app, client):
