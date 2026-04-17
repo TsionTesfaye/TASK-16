@@ -151,6 +151,14 @@ def create_app(db_path=None):
     except Exception as e:
         logger.warning("Startup reconciliation failed (non-fatal): %s", e)
 
+    # Seed demo accounts when explicitly requested (dev / acceptance only).
+    if os.environ.get("RECLAIM_OPS_SEED_DEMO_USERS", "false").lower() == "true":
+        try:
+            from seed_demo_users import seed_demo_users
+            seed_demo_users(db_path)
+        except Exception as e:
+            logger.warning("Demo user seeding failed (non-fatal): %s", e)
+
     logger.info("Application startup complete, serving on port 5000")
 
     app.config["DB_PATH"] = db_path

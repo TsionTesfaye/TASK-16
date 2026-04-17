@@ -30,6 +30,8 @@ services:
       # Enable background scheduler sweeps
       - SCHEDULER_BACKGROUND=true
       - SCHEDULER_INTERVAL_SECONDS=300
+      # Seed demo accounts on first boot (admin + one user per role)
+      - RECLAIM_OPS_SEED_DEMO_USERS=true
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,ssl;ctx=ssl.create_default_context();ctx.check_hostname=False;ctx.verify_mode=ssl.CERT_NONE;urllib.request.urlopen('https://localhost:5443/health',context=ctx).read()"]
@@ -63,6 +65,7 @@ services:
       - SECURE_COOKIES=false
       - SCHEDULER_BACKGROUND=true
       - SCHEDULER_INTERVAL_SECONDS=300
+      - RECLAIM_OPS_SEED_DEMO_USERS=true
     profiles:
       - dev
     healthcheck:

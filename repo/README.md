@@ -1,5 +1,7 @@
 # ReclaimOps — Offline Operations Suite
 
+**Project Type:** fullstack
+
 A fully offline, HTMX-driven buyback operations platform for in-store recyclable-textile programs. Handles ticket intake, QC & traceability, table/room state, notifications, member administration, and operational reporting. No internet, no external APIs, no cloud services — one `docker compose up` brings the entire stack online.
 
 ## Architecture & Tech Stack
@@ -52,8 +54,10 @@ A fully offline, HTMX-driven buyback operations platform for in-store recyclable
 1. **Build and start containers:**
 
    ```bash
-   docker compose up --build -d
+   docker-compose up --build -d
    ```
+
+   > Also accepted: `docker compose up --build -d` (Docker Compose v2 plugin syntax)
 
    A self-signed TLS certificate is auto-generated on first boot. The database, encryption key, and session signing key persist in Docker named volumes.
 
@@ -61,29 +65,21 @@ A fully offline, HTMX-driven buyback operations platform for in-store recyclable
 
    * Frontend: `https://localhost:5443/ui/login` (accept self-signed cert once)
    * Backend API: `https://localhost:5443/api/`
-   * API Documentation: [`docs/api-spec.md`](docs/api-spec.md) — 87 endpoints across 14 groups
+   * API Documentation: [`docs/api-spec.md`](docs/api-spec.md) — 91 endpoints across 14 groups
    * Health check: `https://localhost:5443/health`
 
    > **Dev profile** (plain HTTP on port 5000, no TLS — not for production):
    > ```bash
-   > docker compose --profile dev up --build -d backend-dev
+   > docker-compose --profile dev up --build -d backend-dev
    > ```
    > Then access at `http://localhost:5000/ui/login`
 
-3. **Bootstrap the first administrator** (fresh deployment only):
+   Demo accounts for all roles are seeded automatically on first boot — see [Seeded Credentials](#seeded-credentials).
+
+3. **Stop the application:**
 
    ```bash
-   curl -k -X POST https://localhost:5443/api/auth/bootstrap \
-     -H "Content-Type: application/json" \
-     -d '{"username":"admin","password":"ChangeMeNow123!","display_name":"Admin"}'
-   ```
-
-   The bootstrap endpoint locks itself permanently after first use. All subsequent users are created via `POST /api/auth/users` by an administrator.
-
-4. **Stop the application:**
-
-   ```bash
-   docker compose down -v
+   docker-compose down -v
    ```
 
    (`-v` also removes the `db-data` and `key-data` volumes — a full reset.)
@@ -101,7 +97,7 @@ chmod +x run_tests.sh
 
 The script exits `0` when all tests pass and the coverage gate (≥ 90%) is met, non-zero on any failure or shortfall.
 
-**Stage 1 — pytest (908 tests, 93.64% line coverage, gate ≥ 90%):**
+**Stage 1 — pytest (1117 tests, ≥ 90% line coverage gate):**
 
 | Layer | Tests |
 |-------|-------|
@@ -114,6 +110,9 @@ The script exits `0` when all tests pass and the coverage gate (≥ 90%) is met,
 | API endpoints (routes, auth, role gates, validation) | 109 |
 | API coverage + flow + deep tests | 157 |
 | HTMX partials (cross-store matrix, RBAC, null-store) | 26 |
+| Frontend component tests (all templates, HTMX wiring, role gates) | 172 |
+| Seed verification (all roles login, idempotency) | 11 |
+| UI routes + GET / + GET /ui/ + template contracts | 35 |
 | Health | 2 |
 
 **Stage 2 — Playwright E2E (16 tests, 6 roles, real browser):**
@@ -122,17 +121,58 @@ Browser-driven tests run against a live backend container over plain HTTP. Cover
 
 ## Seeded Credentials
 
-There are no seeded user accounts. The `users` table starts completely empty by design.
+On first boot the application automatically seeds one account per role so testers can log in immediately — no manual bootstrap required.
 
-To access the application:
+| Role | Username | Password |
+| :--- | :--- | :--- |
+| **Administrator** | `admin` | `AdminPass123!` |
+| **Front Desk Agent** | `operator` | `DemoPass1234!` |
+| **Shift Supervisor** | `supervisor` | `DemoPass1234!` |
+| **QC Inspector** | `qcinspector` | `DemoPass1234!` |
+| **Host** | `host` | `DemoPass1234!` |
+| **Operations Manager** | `opsmanager` | `DemoPass1234!` |
 
-1. **Bootstrap the first admin** — `POST /api/auth/bootstrap` (locks permanently after first use, see step 3 above)
-2. **Admin creates all other users** — `POST /api/auth/users` with the desired role and credentials
-3. **Users log in** — `POST /api/auth/login` or via the UI at `/ui/login`
+All role users are assigned to the `DEMO` store created on first boot.
 
 **Password policy:** 12-character minimum. 5 failed attempts lock the account for 15 minutes.
 
-**Password policy:** 12-character minimum. 5 failed attempts lock the account for 15 minutes.
+## Verification
+
+Use the following steps to confirm the system is working correctly after `docker-compose up --build -d`.
+
+**1. Health check (API)**
+```bash
+curl -k https://localhost:5443/health
+# Expected: {"status": "ok"}
+```
+
+**2. Login as admin (API)**
+```bash
+curl -k -X POST https://localhost:5443/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"AdminPass123!"}'
+# Expected: 200 with data.user.role = "administrator" and data.csrf_token present
+```
+
+**3. Login as operator (API)**
+```bash
+curl -k -X POST https://localhost:5443/api/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"username":"operator","password":"DemoPass1234!"}'
+# Expected: 200 with data.user.role = "front_desk_agent"
+```
+
+**4. Web login (browser)**
+
+Navigate to `https://localhost:5443/ui/login`, accept the self-signed certificate, and sign in with any credential from the table above. Each role lands on the correct page (`/ui/tickets` for operator, `/ui/tables` for host, etc.).
+
+**5. Role gate check (browser)**
+
+While logged in as `operator`, navigate to `https://localhost:5443/ui/members`. Expect a redirect back to `/ui/login` — the members page is administrator-only.
+
+**6. HTMX partial check (browser)**
+
+On the Tickets page, click **Refresh** in the Ticket Queue card. The queue partial should reload from `/ui/partials/tickets/queue` without a full page refresh.
 
 ## Security Guarantees
 
